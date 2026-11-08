@@ -1,0 +1,16 @@
+{
+  "id": 1,
+  "name": "GECLM completeness: stored comments vs submission num_comments",
+  "threshold": "every subreddit-year with >= 100 threads (num_comments >= 10): median stored/claimed in [0.90, 1.15] and <= 5% of threads with ratio < 0.5",
+  "result": {
+    "subreddit_years": 16,
+    "failing": [],
+    "median_ratio_range": [
+      1.0,
+      1.054054054054054
+    ],
+    "max_share_lt_0_5": 0.0016963528413910093
+  },
+  "status": "PASS",
+  "notes": "num_comments is the submission snapshot at its retrieval time; stored comments include deleted/removed ones and any posted after that snapshot, so ratios slightly above 1 are expected."
+}

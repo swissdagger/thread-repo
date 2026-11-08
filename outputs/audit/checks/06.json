@@ -1,0 +1,44 @@
+{
+  "id": 6,
+  "name": "HN dead/flagged items excluded from parents, events and sibling positions",
+  "threshold": "dead items appear in none of parents, reply events, or sibling positions",
+  "result": {
+    "per_class": [
+      {
+        "community": "ask_hn",
+        "dead_share_of_comments": 0.01336325069633148,
+        "dead_parents_before_fix": 5503,
+        "dead_parent_share_before": 0.01336325069633148,
+        "mu_mcf3d_dead_included": 0.47817513799140854,
+        "mu_mcf3d_dead_excluded": 0.478318869401277,
+        "share_replied_included": 0.32607740146332814,
+        "share_replied_excluded": 0.32735824444127215,
+        "mu_rel_change": 0.00030058319316261795
+      },
+      {
+        "community": "link",
+        "dead_share_of_comments": 0.01823418364672085,
+        "dead_parents_before_fix": 129034,
+        "dead_parent_share_before": 0.01823418364672085,
+        "mu_mcf3d_dead_included": 0.8100911341768497,
+        "mu_mcf3d_dead_excluded": 0.8063807538156058,
+        "share_replied_included": 0.47072566635799196,
+        "share_replied_excluded": 0.4721066923067512,
+        "mu_rel_change": -0.004580201170840015
+      },
+      {
+        "community": "show_hn",
+        "dead_share_of_comments": 0.01213521786987498,
+        "dead_parents_before_fix": 2216,
+        "dead_parent_share_before": 0.01213521786987498,
+        "mu_mcf3d_dead_included": 0.6324332316588994,
+        "mu_mcf3d_dead_excluded": 0.6332230186315434,
+        "share_replied_included": 0.4408490271563833,
+        "share_replied_excluded": 0.4430881464358373,
+        "mu_rel_change": 0.0012488068828584442
+      }
+    ]
+  },
+  "status": "FAIL",
+  "notes": "Before the audit dead comments were kept (only bots and orphans were excluded): they were parents, reply events and siblings in proxy (b). FIXED: forum_model.units.hn_population now excludes them by default (column 'excluded'), and step 4 sibling positions skip them. Step 3, 3b and 4 HN outputs are recomputed with the fix (see reports/audit.md). 'Flagged' items are the dead ones in this dump; 'deleted' items (removed by their author after being visible) are kept."
+}

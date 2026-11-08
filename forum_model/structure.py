@@ -9,8 +9,8 @@ at their original depth. Orphans (no path to root) are always removed.
 
 Per-author normalisation ("per_author" weighting): comment-level statistics are first averaged
 within author, then across authors (unknown authors excluded); thread-level statistics weight
-each thread by 1 / (number of threads by the same root author in the population), unknown root
-authors counting as distinct.
+each thread by 1 / (number of threads by the same root author in the population); threads whose root
+author is unknown (deleted) get weight 0 (corrected in step 3b; previously each counted as its own author).
 """
 from __future__ import annotations
 
@@ -50,11 +50,12 @@ def thread_table(R: pl.DataFrame, roots: pl.DataFrame) -> pl.DataFrame:
     )
     n_by_author = t.filter(pl.col("root_author").is_not_null()).group_by("root_author").agg(pl.len().alias("_na"))
     return t.join(n_by_author, on="root_author", how="left").with_columns(
-        w_author=1.0 / pl.col("_na").fill_null(1)).drop("_na")
+        # unknown (deleted) root authors get weight 0 in per-author versions
+        w_author=pl.when(pl.col("root_author").is_null()).then(0.0).otherwise(1.0 / pl.col("_na"))).drop("_na")
 
 
 def wquantile(x: np.ndarray, w: np.ndarray, q: float) -> float:
-    if len(x) == 0:
+    if len(x) == 0 or w.sum() <= 0:
         return float("nan")
     o = np.argsort(x)
     cw = np.cumsum(w[o]) / w.sum()
@@ -66,6 +67,8 @@ def dist_summary(x: np.ndarray, w: np.ndarray | None, prefix: str) -> dict:
         w = np.ones(len(x))
     if len(x) == 0:
         return {f"{prefix}_n": 0}
+    if w.sum() <= 0:  # e.g. per-author weights when every root author is unknown
+        return {f"{prefix}_n": int(len(x)), f"{prefix}_mean": float("nan")}
     out = {f"{prefix}_n": int(len(x)), f"{prefix}_mean": float(np.average(x, weights=w))}
     for q in QS:
         out[f"{prefix}_q{int(q * 100)}"] = wquantile(x, w, q)

@@ -1,0 +1,470 @@
+{
+  "id": 8,
+  "name": "Stability of contest_mode / suggested_sort (proxy c and d threads)",
+  "threshold": "r/Fantasy contest threads: >= 90% of threads show score-obscuring (>= 90% of comments with score 1) at comment retrieval; recurring series consistent in mode; flags otherwise",
+  "result": {
+    "score_obscuring": {
+      "Fantasy": {
+        "proxy_threads": 996,
+        "threads_with_comments": 977,
+        "median_share_score_1_proxy": 1.0,
+        "share_threads_score1_ge_0_9": 1.0,
+        "share_score_1_control_comments": 0.2893354023507745,
+        "median_retrieval_lag_days": 92.63857638888888
+      },
+      "AskHistorians": {
+        "proxy_threads": 736,
+        "threads_with_comments": 703,
+        "median_share_score_1_proxy": 0.13414634146341464,
+        "share_threads_score1_ge_0_9": 0.004267425320056899,
+        "share_score_1_control_comments": 0.36707942593647996,
+        "median_retrieval_lag_days": 99.86479456018517
+      }
+    },
+    "series_by_year": [
+      {
+        "subreddit": "Fantasy",
+        "series": "self-promotion",
+        "yr": "2018",
+        "n": 28,
+        "contest": 27.0,
+        "random_": 0.0,
+        "new_": 0.0
+      },
+      {
+        "subreddit": "Fantasy",
+        "series": "self-promotion",
+        "yr": "2019",
+        "n": 31,
+        "contest": 26.0,
+        "random_": 0.0,
+        "new_": 0.0
+      },
+      {
+        "subreddit": "Fantasy",
+        "series": "self-promotion",
+        "yr": "2020",
+        "n": 8,
+        "contest": 5.0,
+        "random_": 0.0,
+        "new_": 0.0
+      },
+      {
+        "subreddit": "Fantasy",
+        "series": "self-promotion",
+        "yr": "2021",
+        "n": 1,
+        "contest": 0.0,
+        "random_": 0.0,
+        "new_": 0.0
+      },
+      {
+        "subreddit": "Fantasy",
+        "series": "general discussion",
+        "yr": "2018",
+        "n": 53,
+        "contest": 52.0,
+        "random_": 0.0,
+        "new_": 0.0
+      },
+      {
+        "subreddit": "Fantasy",
+        "series": "general discussion",
+        "yr": "2019",
+        "n": 52,
+        "contest": 52.0,
+        "random_": 0.0,
+        "new_": 0.0
+      },
+      {
+        "subreddit": "Fantasy",
+        "series": "general discussion",
+        "yr": "2020",
+        "n": 14,
+        "contest": 14.0,
+        "random_": 0.0,
+        "new_": 0.0
+      },
+      {
+        "subreddit": "Fantasy",
+        "series": "friday social",
+        "yr": "2020",
+        "n": 38,
+        "contest": 38.0,
+        "random_": 0.0,
+        "new_": 0.0
+      },
+      {
+        "subreddit": "Fantasy",
+        "series": "friday social",
+        "yr": "2021",
+        "n": 54,
+        "contest": 52.0,
+        "random_": 0.0,
+        "new_": 0.0
+      },
+      {
+        "subreddit": "AskHistorians",
+        "series": "sunday digest",
+        "yr": "2018",
+        "n": 52,
+        "contest": 0.0,
+        "random_": 20.0,
+        "new_": 0.0
+      },
+      {
+        "subreddit": "AskHistorians",
+        "series": "sunday digest",
+        "yr": "2019",
+        "n": 52,
+        "contest": 0.0,
+        "random_": 52.0,
+        "new_": 0.0
+      },
+      {
+        "subreddit": "AskHistorians",
+        "series": "sunday digest",
+        "yr": "2020",
+        "n": 52,
+        "contest": 0.0,
+        "random_": 52.0,
+        "new_": 0.0
+      },
+      {
+        "subreddit": "AskHistorians",
+        "series": "sunday digest",
+        "yr": "2021",
+        "n": 52,
+        "contest": 0.0,
+        "random_": 52.0,
+        "new_": 0.0
+      },
+      {
+        "subreddit": "AskHistorians",
+        "series": "friday free-for-all",
+        "yr": "2018",
+        "n": 52,
+        "contest": 0.0,
+        "random_": 0.0,
+        "new_": 0.0
+      },
+      {
+        "subreddit": "AskHistorians",
+        "series": "friday free-for-all",
+        "yr": "2019",
+        "n": 53,
+        "contest": 0.0,
+        "random_": 1.0,
+        "new_": 0.0
+      },
+      {
+        "subreddit": "AskHistorians",
+        "series": "friday free-for-all",
+        "yr": "2020",
+        "n": 52,
+        "contest": 0.0,
+        "random_": 5.0,
+        "new_": 0.0
+      },
+      {
+        "subreddit": "AskHistorians",
+        "series": "friday free-for-all",
+        "yr": "2021",
+        "n": 53,
+        "contest": 0.0,
+        "random_": 53.0,
+        "new_": 0.0
+      },
+      {
+        "subreddit": "AskHistorians",
+        "series": "thursday reading",
+        "yr": "2018",
+        "n": 46,
+        "contest": 0.0,
+        "random_": 0.0,
+        "new_": 20.0
+      },
+      {
+        "subreddit": "AskHistorians",
+        "series": "thursday reading",
+        "yr": "2019",
+        "n": 52,
+        "contest": 0.0,
+        "random_": 0.0,
+        "new_": 52.0
+      },
+      {
+        "subreddit": "AskHistorians",
+        "series": "thursday reading",
+        "yr": "2020",
+        "n": 53,
+        "contest": 0.0,
+        "random_": 6.0,
+        "new_": 47.0
+      },
+      {
+        "subreddit": "AskHistorians",
+        "series": "thursday reading",
+        "yr": "2021",
+        "n": 53,
+        "contest": 0.0,
+        "random_": 52.0,
+        "new_": 0.0
+      },
+      {
+        "subreddit": "AskHistorians",
+        "series": "monday methods",
+        "yr": "2018",
+        "n": 18,
+        "contest": 0.0,
+        "random_": 0.0,
+        "new_": 0.0
+      },
+      {
+        "subreddit": "AskHistorians",
+        "series": "monday methods",
+        "yr": "2019",
+        "n": 2,
+        "contest": 0.0,
+        "random_": 0.0,
+        "new_": 0.0
+      },
+      {
+        "subreddit": "AskHistorians",
+        "series": "monday methods",
+        "yr": "2020",
+        "n": 5,
+        "contest": 0.0,
+        "random_": 1.0,
+        "new_": 0.0
+      },
+      {
+        "subreddit": "AskHistorians",
+        "series": "monday methods",
+        "yr": "2021",
+        "n": 9,
+        "contest": 0.0,
+        "random_": 9.0,
+        "new_": 0.0
+      },
+      {
+        "subreddit": "AskHistorians",
+        "series": "tuesday trivia",
+        "yr": "2018",
+        "n": 19,
+        "contest": 0.0,
+        "random_": 8.0,
+        "new_": 0.0
+      },
+      {
+        "subreddit": "AskHistorians",
+        "series": "tuesday trivia",
+        "yr": "2019",
+        "n": 22,
+        "contest": 0.0,
+        "random_": 22.0,
+        "new_": 0.0
+      },
+      {
+        "subreddit": "AskHistorians",
+        "series": "tuesday trivia",
+        "yr": "2020",
+        "n": 18,
+        "contest": 0.0,
+        "random_": 17.0,
+        "new_": 0.0
+      },
+      {
+        "subreddit": "buildapc",
+        "series": "simple questions",
+        "yr": "2018",
+        "n": 357,
+        "contest": 0.0,
+        "random_": 0.0,
+        "new_": 350.0
+      },
+      {
+        "subreddit": "buildapc",
+        "series": "simple questions",
+        "yr": "2019",
+        "n": 367,
+        "contest": 0.0,
+        "random_": 0.0,
+        "new_": 352.0
+      },
+      {
+        "subreddit": "buildapc",
+        "series": "simple questions",
+        "yr": "2020",
+        "n": 388,
+        "contest": 0.0,
+        "random_": 0.0,
+        "new_": 364.0
+      },
+      {
+        "subreddit": "buildapc",
+        "series": "simple questions",
+        "yr": "2021",
+        "n": 367,
+        "contest": 0.0,
+        "random_": 0.0,
+        "new_": 362.0
+      },
+      {
+        "subreddit": "buildapc",
+        "series": "build ready",
+        "yr": "2018",
+        "n": 1233,
+        "contest": 0.0,
+        "random_": 0.0,
+        "new_": 0.0
+      },
+      {
+        "subreddit": "buildapc",
+        "series": "build ready",
+        "yr": "2019",
+        "n": 839,
+        "contest": 0.0,
+        "random_": 0.0,
+        "new_": 0.0
+      },
+      {
+        "subreddit": "buildapc",
+        "series": "build ready",
+        "yr": "2020",
+        "n": 578,
+        "contest": 0.0,
+        "random_": 0.0,
+        "new_": 0.0
+      },
+      {
+        "subreddit": "buildapc",
+        "series": "build ready",
+        "yr": "2021",
+        "n": 135,
+        "contest": 0.0,
+        "random_": 0.0,
+        "new_": 0.0
+      },
+      {
+        "subreddit": "buildapc",
+        "series": "discussion thread",
+        "yr": "2019",
+        "n": 1,
+        "contest": 0.0,
+        "random_": 0.0,
+        "new_": 0.0
+      },
+      {
+        "subreddit": "buildapc",
+        "series": "megathread",
+        "yr": "2018",
+        "n": 15,
+        "contest": 0.0,
+        "random_": 0.0,
+        "new_": 0.0
+      },
+      {
+        "subreddit": "buildapc",
+        "series": "megathread",
+        "yr": "2019",
+        "n": 17,
+        "contest": 0.0,
+        "random_": 0.0,
+        "new_": 4.0
+      },
+      {
+        "subreddit": "buildapc",
+        "series": "megathread",
+        "yr": "2020",
+        "n": 19,
+        "contest": 0.0,
+        "random_": 0.0,
+        "new_": 1.0
+      },
+      {
+        "subreddit": "buildapc",
+        "series": "megathread",
+        "yr": "2021",
+        "n": 4,
+        "contest": 0.0,
+        "random_": 0.0,
+        "new_": 0.0
+      },
+      {
+        "subreddit": "philosophy",
+        "series": "open discussion thread",
+        "yr": "2018",
+        "n": 57,
+        "contest": 0.0,
+        "random_": 0.0,
+        "new_": 52.0
+      },
+      {
+        "subreddit": "philosophy",
+        "series": "open discussion thread",
+        "yr": "2019",
+        "n": 52,
+        "contest": 0.0,
+        "random_": 0.0,
+        "new_": 52.0
+      },
+      {
+        "subreddit": "philosophy",
+        "series": "open discussion thread",
+        "yr": "2020",
+        "n": 54,
+        "contest": 0.0,
+        "random_": 0.0,
+        "new_": 52.0
+      },
+      {
+        "subreddit": "philosophy",
+        "series": "open discussion thread",
+        "yr": "2021",
+        "n": 53,
+        "contest": 0.0,
+        "random_": 0.0,
+        "new_": 53.0
+      },
+      {
+        "subreddit": "philosophy",
+        "series": "ama",
+        "yr": "2018",
+        "n": 179,
+        "contest": 0.0,
+        "random_": 0.0,
+        "new_": 0.0
+      },
+      {
+        "subreddit": "philosophy",
+        "series": "ama",
+        "yr": "2019",
+        "n": 119,
+        "contest": 0.0,
+        "random_": 0.0,
+        "new_": 0.0
+      },
+      {
+        "subreddit": "philosophy",
+        "series": "ama",
+        "yr": "2020",
+        "n": 88,
+        "contest": 0.0,
+        "random_": 0.0,
+        "new_": 0.0
+      },
+      {
+        "subreddit": "philosophy",
+        "series": "ama",
+        "yr": "2021",
+        "n": 119,
+        "contest": 0.0,
+        "random_": 0.0,
+        "new_": 0.0
+      }
+    ]
+  },
+  "status": "PASS",
+  "notes": "GECLM holds one snapshot per submission and per comment, so a toggle cannot be observed directly. Contest mode leaves a trace (API scores obscured to 1 for non-moderators while it is on); random and new sorts leave none, so (d) and r/AskHistorians (c) rest on the snapshot value and series consistency."
+}

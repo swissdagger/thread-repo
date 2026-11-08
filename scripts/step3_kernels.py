@@ -32,7 +32,7 @@ from scipy import stats  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from forum_model import ROOT, items_paths, load_partitions, proc_dir  # noqa: E402
 from forum_model import hazard as H  # noqa: E402
-from forum_model.split import calibration_fold  # noqa: E402
+from forum_model.units import cap_fit, hn_population, load, moltbook_population, reddit_population  # noqa: E402
 
 P = load_partitions()
 SEED = P["seed"]
@@ -59,63 +59,9 @@ def dirs(ds: str):
     return o, f
 
 
-def hash_u(s: str, salt: str) -> float:
-    return int(hashlib.sha256(f"{SEED}:{salt}:{s}".encode()).hexdigest()[:13], 16) / 16 ** 13
-
-
 # ------------------------------------------------------------------------------------------
 # assembling parents, first replies and all replies
 # ------------------------------------------------------------------------------------------
-
-COLS = ["thread_id", "id", "parent_id", "is_root", "created", "author", "depth", "orphan", "self_reply",
-        "bot_listed", "top_active", "split", "thread_size", "community"]
-
-
-def load(ds: str, communities: list[str] | None, extra: list[str]) -> pl.DataFrame:
-    lf = pl.scan_parquet(items_paths(ds, communities))
-    names = lf.collect_schema().names()
-    df = lf.select([c for c in COLS + extra if c in names]).collect()
-    return df.with_columns(pl.col("id").cast(pl.String), pl.col("parent_id").cast(pl.String))
-
-
-def build_units(items: pl.DataFrame, obs_end: pl.Expr, parent_filter: pl.Expr, dataset: str) -> dict:
-    """items must carry an 'obs_end' column (absolute seconds) for every row.
-
-    Returns per unit: parents (id, thread_id, fold, author, top_active, depth, c, t_first, d,
-    n_replies) and replies (parent id, fold, delay, replier top_active)."""
-    items = items.with_columns(obs_end=obs_end)
-    cal = items.filter(pl.col("split") == "calibration")
-    threads = cal.filter(pl.col("is_root"))["thread_id"].unique().to_list()
-    fold = pl.DataFrame({"thread_id": threads, "fold": calibration_fold(threads, dataset, SEED)})
-    cal = cal.join(fold, on="thread_id", how="inner")
-    par = cal.filter(parent_filter & ~pl.col("orphan").fill_null(False) & ~pl.col("bot_listed").fill_null(False))
-    par = par.with_columns(c=(pl.col("obs_end") - pl.col("created")).clip(lower_bound=H.TMIN)).filter(
-        pl.col("obs_end") > pl.col("created"))
-    kids = cal.filter(~pl.col("is_root") & ~pl.col("orphan").fill_null(False) & ~pl.col("bot_listed").fill_null(False)
-                      & ~pl.col("self_reply").fill_null(False)).select(
-        pid="parent_id", kid_created="created", kid_top="top_active")
-    rep = par.select("id", "created", "c", "fold").join(kids, left_on="id", right_on="pid", how="inner").with_columns(
-        delay=(pl.col("kid_created") - pl.col("created")).clip(lower_bound=0.0)).filter(pl.col("delay") <= pl.col("c"))
-    first = rep.group_by("id").agg(t_first=pl.col("delay").min(), n_replies=pl.len())
-    par = par.join(first, on="id", how="left").with_columns(
-        d=pl.col("t_first").is_not_null(), n_replies=pl.col("n_replies").fill_null(0),
-        t=pl.coalesce("t_first", "c"))
-    # per-author weights within each fold (unknown authors count as distinct)
-    nau = par.filter(pl.col("author").is_not_null()).group_by("fold", "author").agg(_na=pl.len())
-    par = par.join(nau, on=["fold", "author"], how="left").with_columns(w_pa=1.0 / pl.col("_na").fill_null(1)).drop("_na")
-    return {"parents": par.select("id", "thread_id", "fold", "author", "top_active", "depth", "c", "t", "d",
-                                  "n_replies", "w_pa"),
-            "replies": rep.select(pl.col("id").alias("parent"), "fold", "delay", "kid_top")}
-
-
-def cap_fit(par: pl.DataFrame) -> pl.DataFrame:
-    fit = par.filter(pl.col("fold") == "fit")
-    if fit.height <= FIT_CAP:
-        return fit
-    u = np.array([hash_u(i, "cap") for i in fit["id"].to_list()])
-    thr = np.partition(u, FIT_CAP - 1)[FIT_CAP - 1]
-    return fit.filter(pl.Series(u <= thr))
-
 
 # ------------------------------------------------------------------------------------------
 # one unit
@@ -138,7 +84,7 @@ def analyse_unit(ds: str, comm: str, unit: str, U: dict, depth_for_tail: dict[st
                                                  weighting=pl.lit(wlab)))
     # parametric first-reply fits
     fits = {}
-    for fam in H.FAMILIES:
+    for fam in H.STEP3_FAMILIES:
         f = H.fit_first_reply(fam, t, d)
         fits[fam] = f
         rows.append({**base, "fit_type": "first_reply", **f.params(),
@@ -150,7 +96,7 @@ def analyse_unit(ds: str, comm: str, unit: str, U: dict, depth_for_tail: dict[st
     # all direct replies (Poisson process), same kernels
     rfit = rep.join(fit.select(pl.col("id").alias("parent")), on="parent", how="semi")
     r = rfit["delay"].to_numpy()
-    for fam in H.FAMILIES:
+    for fam in H.STEP3_FAMILIES:
         fa = H.fit_all_replies(fam, r, np.ones_like(r), fit["c"].to_numpy(), np.ones(fit.height))
         rows.append({**base, "fit_type": "all_replies", **fa.params(), "heldout_ll_per_comment": None})
     # proper Weibull on delays of comments that got a reply (comparison with published shapes)
@@ -203,75 +149,48 @@ def comment_depths(items: pl.DataFrame, extra_filter: pl.Expr = pl.lit(True)) ->
 # ------------------------------------------------------------------------------------------
 
 def run_reddit():
+    from forum_model.units import build_units
     ds = "reddit"
-    end = ep(P["reddit"]["observation_end_utc"])
     rows, haz, descs = [], [], []
     for sub in P["reddit"]["subreddits"]:  # one subreddit in memory at a time
-        it = load(ds, [sub], ["removed_by_category"])
+        it, filters = reddit_population(sub)
         lt100 = it.filter(pl.col("is_root") & (pl.col("thread_size") < 100))["thread_id"]
         tails = {"full": comment_depths(it), "lt100": comment_depths(it, pl.col("thread_id").is_in(lt100.implode()))}
-        U = build_units(it, pl.lit(end), ~pl.col("is_root"), f"{ds}:{sub}")
-        r, h, d, _ = analyse_unit(ds, sub, "nonroot", U, tails)
-        rows += r; haz += h; descs.append(d)
-        U = build_units(it, pl.lit(end), pl.col("is_root") & pl.col("removed_by_category").is_null(), f"{ds}:{sub}")
-        r, h, d, _ = analyse_unit(ds, sub, "root_live", U, None)
-        rows += r; haz += h; descs.append(d)
-        del it, U
+        for unit, f in filters.items():
+            r, h, d, _ = analyse_unit(ds, sub, unit, build_units(it, f, f"{ds}:{sub}"), tails if unit == "nonroot" else None)
+            rows += r; haz += h; descs.append(d)
+        del it
         gc.collect()
     write(ds, rows, haz, descs)
 
 
 def run_hn():
+    from forum_model.units import build_units
     ds = "hn"
-    end = ep(P["hn"]["observation_end_utc"])
-    it = load(ds, None, ["body_status"])
+    hn_items = load(ds, None, ["body_status"])
     rows, haz, descs = [], [], []
     for comm in ["ask_hn", "link", "show_hn"]:
-        sub = it.filter(pl.col("community") == comm)
-        live = sub.filter(pl.col("is_root") & (pl.col("body_status") == "ok"))["thread_id"]
-        sub = sub.filter(pl.col("thread_id").is_in(live.implode()))
-        lt100 = sub.filter(pl.col("is_root") & (pl.col("thread_size") < 100))["thread_id"]
-        tails = {"full": comment_depths(sub), "lt100": comment_depths(sub, pl.col("thread_id").is_in(lt100.implode()))}
-        U = build_units(sub, pl.lit(end), ~pl.col("is_root"), f"{ds}:{comm}")
-        r, h, d, _ = analyse_unit(ds, comm, "nonroot", U, tails)
-        rows += r; haz += h; descs.append(d)
-        U = build_units(sub, pl.lit(end), pl.col("is_root"), f"{ds}:{comm}")
-        r, h, d, _ = analyse_unit(ds, comm, "root_live", U, None)
-        rows += r; haz += h; descs.append(d)
+        it, filters = hn_population(comm, hn_items=hn_items)
+        lt100 = it.filter(pl.col("is_root") & (pl.col("thread_size") < 100))["thread_id"]
+        tails = {"full": comment_depths(it), "lt100": comment_depths(it, pl.col("thread_id").is_in(lt100.implode()))}
+        for unit, f in filters.items():
+            r, h, d, _ = analyse_unit(ds, comm, unit, build_units(it, f, f"{ds}:{comm}"), tails if unit == "nonroot" else None)
+            rows += r; haz += h; descs.append(d)
     write(ds, rows, haz, descs)
 
 
 def run_moltbook():
+    from forum_model.units import build_units
     ds = "moltbook_crawl"
-    it = load(ds, None, ["retrieved", "claimed_comments"])
-    spam = pl.read_parquet(proc_dir(ds) / "spam_flags.parquet").filter(pl.col("spam"))["thread_id"]
-    it = it.filter(~pl.col("thread_id").is_in(spam.implode()))
-    roots = it.filter(pl.col("is_root")).select("thread_id", complete=pl.col("thread_size") >= pl.col("claimed_comments"))
-    last_stored = it.filter(~pl.col("is_root")).group_by("thread_id").agg(last_stored=pl.col("created").max())
-    crawl_end = it.group_by("thread_id").agg(crawl_end=pl.col("retrieved").max())
-    it = it.join(roots, on="thread_id", how="left").join(crawl_end, on="thread_id", how="left").join(
-        last_stored, on="thread_id", how="left")
-    (s1a, s1b), (s2a, _) = [[ep(x) for x in s] for s in P["moltbook"]["contiguous_comment_segments_utc"]]
-    in_seg1 = pl.col("created").is_between(s1a, s1b)
-    in_seg2 = pl.col("created") >= s2a
-    seg_ok = in_seg1 | in_seg2
-    thread_end = pl.when(pl.col("complete")).then(pl.col("crawl_end")).otherwise(
-        pl.min_horizontal("crawl_end", "last_stored"))
-    obs_end = pl.when(in_seg1).then(pl.min_horizontal(thread_end, pl.lit(s1b))).otherwise(thread_end)
     rows, haz, descs = [], [], []
-    for pop, thread_sel in [("complete", pl.col("complete")), ("with_incomplete", pl.lit(True))]:
-        sub = it.filter(thread_sel)
-        tails = {"complete": comment_depths(it.filter(pl.col("complete")))} if pop == "complete" else None
-        units = [("nonroot", ~pl.col("is_root") & seg_ok),
-                 ("depth1", ~pl.col("is_root") & seg_ok & (pl.col("depth") == 1)),
-                 ("depth2plus", ~pl.col("is_root") & seg_ok & (pl.col("depth") >= 2)),
-                 ("root_live", pl.col("is_root") & seg_ok)]
-        if pop == "with_incomplete":
-            units = units[:1]
-        for unit, filt in units:
-            U = build_units(sub, obs_end, filt, ds)
-            r, h, d, _ = analyse_unit(ds, "moltbook", unit if pop == "complete" else f"{unit}__{pop}", U,
-                                      tails if unit == "nonroot" else None)
+    for pop in ["complete", "with_incomplete"]:
+        it, filters = moltbook_population(pop)
+        tails = {"complete": comment_depths(it)} if pop == "complete" else None
+        for unit, f in filters.items():
+            if pop == "with_incomplete" and unit != "nonroot":
+                continue
+            r, h, d, _ = analyse_unit(ds, "moltbook", unit if pop == "complete" else f"{unit}__{pop}",
+                                      build_units(it, f, ds), tails if unit == "nonroot" else None)
             rows += r; haz += h; descs.append(d)
     write(ds, rows, haz, descs)
 
@@ -393,8 +312,44 @@ def run_keynumbers():
     pl.concat(out, how="diagonal_relaxed").write_csv(o / "step3_key_numbers.csv")
 
 
+def run_per_author_refresh():
+    """Recompute only the per-author pieces of step 3 (life tables weighted per author and the
+    per-author Weibull first-reply fit) after the correction that gives deleted/unknown authors
+    weight 0, and replace those rows in the step-3 outputs. Raw results are unchanged."""
+    from forum_model.units import step3_populations
+    new_fit, new_haz, new_sum = {}, {}, {}
+    for ds, comm, unit, U in step3_populations():
+        par = U["parents"]
+        fit, held = cap_fit(par), par.filter(pl.col("fold") == "heldout")
+        t, d, w = fit["t"].to_numpy(), fit["d"].to_numpy(), fit["w_pa"].to_numpy()
+        lt = H.life_table(t, d, EDGES, w)
+        new_haz.setdefault(ds, []).append(pl.DataFrame(lt).with_columns(
+            dataset=pl.lit(ds), community=pl.lit(comm), unit=pl.lit(unit), weighting=pl.lit("per_author")))
+        f = H.fit_first_reply("weibull", t, d, w)
+        new_fit.setdefault(ds, []).append({"dataset": ds, "community": comm, "unit": unit,
+                                           "fit_type": "first_reply_per_author", **f.params(),
+                                           "heldout_ll_per_comment": H.first_reply_loglik(
+                                               f, held["t"].to_numpy(), held["d"].to_numpy(), held["w_pa"].to_numpy())})
+        new_sum.setdefault(ds, []).append({"community": comm, "unit": unit, "mu_per_author_weibull": f.mu,
+                                           "weibull_shape_per_author": float(np.exp(f.theta[0])),
+                                           "per_author_weight_excludes_unknown": True})
+        print(f"[per-author] {ds} {comm} {unit}: mu_pa={f.mu:.4f} shape={np.exp(f.theta[0]):.3f}", flush=True)
+    for ds in new_fit:
+        out = ROOT / "outputs" / ds
+        fits = pl.read_csv(out / "step3_fits.csv", infer_schema_length=None)
+        fits = pl.concat([fits.filter(pl.col("fit_type") != "first_reply_per_author"),
+                          pl.DataFrame(new_fit[ds], infer_schema_length=None)], how="diagonal_relaxed")
+        fits.write_csv(out / "step3_fits.csv")
+        hz = pl.read_csv(out / "step3_hazard.csv", infer_schema_length=None)
+        pl.concat([hz.filter(pl.col("weighting") != "per_author"), *new_haz[ds]], how="diagonal_relaxed").write_csv(
+            out / "step3_hazard.csv")
+        sm = pl.read_csv(out / "step3_summary.csv", infer_schema_length=None).drop(
+            ["mu_per_author_weibull", "weibull_shape_per_author"])
+        sm.join(pl.DataFrame(new_sum[ds]), on=["community", "unit"], how="left").write_csv(out / "step3_summary.csv")
+
+
 if __name__ == "__main__":
     which = sys.argv[1:] or ["moltbook_crawl", "reddit", "hn", "figures", "keynumbers"]
     for w in which:
         {"reddit": run_reddit, "hn": run_hn, "moltbook_crawl": run_moltbook, "figures": run_figures,
-         "keynumbers": run_keynumbers}[w]()
+         "keynumbers": run_keynumbers, "per_author_refresh": run_per_author_refresh}[w]()

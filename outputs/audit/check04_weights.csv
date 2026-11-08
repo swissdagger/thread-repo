@@ -1,0 +1,7 @@
+dataset,community,max_abs_sum_minus_1,unknown_weight_max,authors_in_both_folds,authors
+reddit,philosophy,1.1102230246251565e-16,0.0,13723,104484
+reddit,buildapc,1.1102230246251565e-16,0.0,170687,750262
+hn,ask_hn,1.1102230246251565e-16,0.0,19700,73461
+hn,link,1.1102230246251565e-16,0.0,73240,174211
+hn,show_hn,1.1102230246251565e-16,0.0,9715,44149
+moltbook_crawl,moltbook,1.1102230246251565e-16,0.0,5062,11416

@@ -1,5 +1,12 @@
 # Step 2: Descriptive structure
 
+> **Correction (Step 3b):** thread-level *per-author* statistics (mean thread size, max depth and
+> distinct-commenter counts, weighted per root author) previously gave threads with a deleted root author
+> weight 1 each. They now get weight 0. Corrected values are in `outputs/combined/step2_key_numbers.csv`
+> (e.g. r/philosophy per-author mean thread size 3.84 → 5.07). Raw statistics and comment-level per-author
+> statistics are unchanged. See `reports/step3b.md` §2.
+
+
 Status: done. **Nothing has been fitted.** Waiting for confirmation before Step 3.
 
 Script: `scripts/step2_structure.py`, with subcommands `census`, `reddit`, `hn`, `moltbook_crawl`,

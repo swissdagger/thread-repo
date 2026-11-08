@@ -1,5 +1,17 @@
 # Step 3: Reply-delay hazard and kernel
 
+> **Correction (Step 3b):** per-author fits gave each comment by a deleted or unknown author weight 1.
+> Corrected per-author μ: r/philosophy 0.538, r/buildapc 0.518, Ask HN 0.330, **HN link 0.509 (was 0.241)**,
+> Show HN 0.563, Moltbook 0.068. **K4 is superseded:** with thread fixed effects, author activity does not
+> predict replies (`reports/step3b.md` §3). The per-author rows in `outputs/*/step3_*` were replaced. All
+> raw results below stand.
+>
+> **Audit:** HN outputs were recomputed with HN dead items excluded (μ changes ≤ 0.5%). The "branching
+> ratio" is now defined as the censoring-adjusted mean offspring μ (MCF). The first-reply integral below is
+> **μ_first**: it understates μ on HN and roots, and overstates it on r/buildapc (`reports/audit.md` §2,
+> `docs/definitions.md`).
+
+
 Status: done. Waiting for confirmation before Step 4.
 
 Script: `scripts/step3_kernels.py`. Shared code: `forum_model/hazard.py`.
