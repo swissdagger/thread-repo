@@ -35,7 +35,7 @@ import numpy as np  # noqa: E402
 import polars as pl  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from forum_model import ROOT, load_partitions  # noqa: E402
+from forum_model import ROOT, items_paths, load_partitions  # noqa: E402
 from forum_model import structure as S  # noqa: E402
 from forum_model.spam import moltbook_spam_flags  # noqa: E402
 
@@ -88,8 +88,9 @@ COLS = ["thread_id", "id", "parent_id", "is_root", "author", "parent_author", "d
         "thread_size", "split", "bot_listed", "bot_name_rule", "top_active", "community"]
 
 
-def load(ds: str, extra_cols: list[str]) -> pl.DataFrame:
-    lf = pl.scan_parquet(PROC / ds / "items.parquet")
+def load(ds: str, extra_cols: list[str], communities: list[str] | None = None) -> pl.DataFrame:
+    """Reddit is read one subreddit at a time (pass communities=[sub])."""
+    lf = pl.scan_parquet(items_paths(ds, communities))
     names = lf.collect_schema().names()
     cols = [c for c in COLS + extra_cols if c in names]
     df = lf.select(cols).collect()
@@ -148,7 +149,7 @@ def run_dataset(ds: str, communities: list[str], variants: list[str], items: pl.
     out_dir, _ = dirs(ds)
     rows, fans, ccdfs = [], [], []
     for comm in communities:
-        it = items.filter(pl.col("community") == comm)
+        it = items(comm) if callable(items) else items.filter(pl.col("community") == comm)
         Xs = exclusion_sets(it.filter(~pl.col("is_root")), variants)
         roots_all = roots_table(it, live_expr)
         com_all = it.filter(~pl.col("is_root") & (pl.col("split") == "calibration"))
@@ -185,7 +186,7 @@ def run_dataset(ds: str, communities: list[str], variants: list[str], items: pl.
 
 
 def run_reddit():
-    items = load("reddit", ["removed_by_category"])
+    items = lambda comm: load("reddit", ["removed_by_category"], [comm])  # one subreddit in memory at a time
     pops = {"full": pl.lit(True), "lt100": pl.col("size_full") < 100}
     run_dataset("reddit", P["reddit"]["subreddits"], ["base", "no_top1", "namerule"], items, pops,
                 pl.col("removed_by_category").is_null())
@@ -421,8 +422,55 @@ def run_keynumbers():
     pl.DataFrame(out).sort("dataset", "community", "population", "variant").write_csv(o / "step2_key_numbers.csv")
 
 
+# ------------------------------------------------------------------------------------------
+# proxy (c) data preparation: S10 bot review and deletion rates (decision after step 2)
+# ------------------------------------------------------------------------------------------
+
+PROXY_C_THREADS = {"Fantasy": pl.col("contest_mode").fill_null(False),
+                   "AskHistorians": pl.col("suggested_sort") == "random"}
+
+
+def run_proxy_c_review():
+    """Authors commenting in > 1 % of threads (whole subreddit window, and within the proxy-(c)
+    threads), for manual bot review; deletion/removal rates overall, by depth, and in proxy threads."""
+    out, _ = dirs("reddit")
+    rev, dele = [], []
+    for sub, sel in PROXY_C_THREADS.items():
+        it = load("reddit", ["contest_mode", "suggested_sort", "body_status", "removed_by_category",
+                             "time_since_parent"], [sub])
+        proxy_ids = it.filter(pl.col("is_root") & sel)["thread_id"]
+        com = it.filter(~pl.col("is_root")).with_columns(
+            in_proxy=pl.col("thread_id").is_in(proxy_ids.implode()))
+        for scope, d in [("subreddit", com), ("proxy_threads", com.filter(pl.col("in_proxy")))]:
+            n_threads = d["thread_id"].n_unique()
+            a = (d.filter(pl.col("author").is_not_null()).group_by("author").agg(
+                comments=pl.len(), threads=pl.col("thread_id").n_unique(),
+                share_depth1=(pl.col("depth") == 1).mean(),
+                median_delay_s=pl.col("time_since_parent").median(),
+                bot_listed=pl.col("bot_listed").first(), bot_name_rule=pl.col("bot_name_rule").first())
+                 .with_columns(thread_coverage=pl.col("threads") / n_threads)
+                 .filter(pl.col("thread_coverage") > 0.01).sort("thread_coverage", descending=True))
+            rev.append(a.with_columns(subreddit=pl.lit(sub), scope=pl.lit(scope), scope_threads=pl.lit(n_threads)))
+            for grp, g in [("all", d), ("top_level", d.filter(pl.col("depth") == 1)),
+                           ("replies", d.filter(pl.col("depth") >= 2))]:
+                dele.append({"subreddit": sub, "scope": scope, "comments_group": grp, "comments": g.height,
+                             "author_deleted": float(g["author"].is_null().mean()),
+                             "body_deleted": float((g["body_status"] == "deleted").mean()),
+                             "body_removed": float((g["body_status"] == "removed").mean()),
+                             "bot_listed": float(g["bot_listed"].mean())})
+        roots = it.filter(pl.col("is_root"))
+        for scope, r in [("subreddit", roots), ("proxy_threads", roots.filter(sel))]:
+            dele.append({"subreddit": sub, "scope": scope, "comments_group": "roots", "comments": r.height,
+                         "author_deleted": float(r["author"].is_null().mean()),
+                         "body_deleted": None,
+                         "body_removed": float(r["removed_by_category"].is_not_null().mean()),
+                         "bot_listed": None})
+    pl.concat(rev, how="diagonal_relaxed").write_csv(out / "step2_proxy_c_author_review.csv")
+    pl.DataFrame(dele).write_csv(out / "step2_proxy_c_deletion_rates.csv")
+
+
 if __name__ == "__main__":
     which = sys.argv[1:] or ["moltbook_crawl", "reddit", "hn", "figures", "keynumbers"]
     for w in which:
         {"census": run_census, "reddit": run_reddit, "hn": run_hn, "moltbook_crawl": run_moltbook,
-         "figures": run_figures, "keynumbers": run_keynumbers}[w]()
+         "figures": run_figures, "keynumbers": run_keynumbers, "proxy_c_review": run_proxy_c_review}[w]()

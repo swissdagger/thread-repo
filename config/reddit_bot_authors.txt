@@ -35,3 +35,6 @@ savevideobot
 WikiSummarizerBot
 # Added in step 2: r/philosophy moderation bot (rules reminder on ~78% of threads; 42,622 comments in window)
 BernardJOrtcutt
+# Added before step 3 (S10 review of proxy-(c) subreddits): r/Fantasy book-link bot; subreddit summary bot
+RedditFantasyBot
+subredditsummarybot

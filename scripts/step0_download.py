@@ -12,9 +12,12 @@ from huggingface_hub import snapshot_download
 ROOT = Path(__file__).resolve().parents[1]
 P = json.loads((ROOT / "partitions.json").read_text())
 
+PROXY_C = [k for k, v in P["reddit"].get("proxy_c_subreddits", {}).items() if isinstance(v, dict)]
+SUBS = P["reddit"]["subreddits"] + PROXY_C
+
 JOBS = {
-    "reddit_comments": (P["sources"]["reddit_comments"], [f"data/{s}-*.parquet" for s in P["reddit"]["subreddits"]]),
-    "reddit_submissions": (P["sources"]["reddit_submissions"], [f"data/{s}-*.parquet" for s in P["reddit"]["subreddits"]]),
+    "reddit_comments": (P["sources"]["reddit_comments"], [f"data/{s}-*.parquet" for s in SUBS]),
+    "reddit_submissions": (P["sources"]["reddit_submissions"], [f"data/{s}-*.parquet" for s in SUBS]),
     "hn": (P["sources"]["hn"], ["part.*.parquet"]),
     "moltbook": (P["sources"]["moltbook"], ["data/comments/*.parquet", "data/posts/*.parquet", "README.md"]),
     "moltbook_crawl": (P["sources"]["moltbook_crawl"], ["moltbook_upload.db", "README.md"]),

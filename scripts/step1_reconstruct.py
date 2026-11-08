@@ -28,7 +28,7 @@ import numpy as np  # noqa: E402
 import polars as pl  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from forum_model import ROOT, load_partitions  # noqa: E402
+from forum_model import ROOT, items_paths, load_partitions, proc_dir, reddit_subreddits  # noqa: E402
 from forum_model.authors import flag_authors, load_bot_list  # noqa: E402
 from forum_model.split import assign_split  # noqa: E402
 from forum_model.trees import build_trees  # noqa: E402
@@ -51,9 +51,9 @@ def dirs(ds: str):
     return o, f, p
 
 
-def con() -> duckdb.DuckDBPyConnection:
+def con(memory_limit: str = "10GB") -> duckdb.DuckDBPyConnection:
     c = duckdb.connect()
-    c.sql("SET threads TO 4; SET memory_limit='10GB'; SET preserve_insertion_order=false;")
+    c.sql(f"SET threads TO 4; SET memory_limit='{memory_limit}'; SET preserve_insertion_order=false;")
     return c
 
 
@@ -63,7 +63,7 @@ def con() -> duckdb.DuckDBPyConnection:
 # --------------------------------------------------------------------------------------------
 
 def load_reddit(sub: str) -> tuple[pl.DataFrame, dict]:
-    c = con()
+    c = con("4GB")  # Reddit: leave headroom for the polars tree build that follows
     lo, hi = (ep(x) for x in P["reddit"]["thread_window_utc"])
     sfiles = sorted(str(x) for x in (RAW / "reddit_submissions" / "data").glob(f"{sub}-*.parquet"))
     cfiles = sorted(str(x) for x in (RAW / "reddit_comments" / "data").glob(f"{sub}-*.parquet"))
@@ -370,75 +370,144 @@ def plot_staleness(items: pl.DataFrame, ds: str, group: str, title: str, note: s
 # Dataset drivers
 # --------------------------------------------------------------------------------------------
 
-def run_reddit():
-    ds = "reddit"
-    out, fig, proc = dirs(ds)
-    bots = load_bot_list(P["author_filters"]["bot_list_file"])
-    parts, extras = [], {}
-    for sub in P["reddit"]["subreddits"]:
-        print(f"[reddit] loading r/{sub}", flush=True)
-        nodes, extra = load_reddit(sub)
-        extras[sub] = extra
-        print(f"[reddit] r/{sub}: {nodes.height:,} nodes; building trees", flush=True)
-        t = build_trees(nodes)
-        del nodes
-        # Reddit parent prefix check: t3_ parent must be the thread root
-        t = t.with_columns(bad_t3_parent=(pl.col("parent_prefix") == "t3_") & (pl.col("parent_id") != pl.col("thread_id")))
-        extras[sub]["t3_parent_not_thread_root"] = int(t["bad_t3_parent"].sum())
-        parts.append(t)
-    items = pl.concat(parts, how="diagonal_relaxed")
-    items = finish(ds, items, ["community"], ["community"], bots, ["community"])
-
-    # contest mode / suggested sort per subreddit
-    roots = items.filter(pl.col("is_root"))
-    cm = roots.group_by("community").agg(
-        threads=pl.len(),
-        contest_mode_threads=pl.col("contest_mode").fill_null(False).sum(),
-        contest_mode_threads_with_comments=(pl.col("contest_mode").fill_null(False) & (pl.col("thread_size") > 0)).sum(),
-        contest_mode_comments=pl.col("thread_size").filter(pl.col("contest_mode").fill_null(False)).sum(),
-        contest_mode_null=pl.col("contest_mode").is_null().sum(),
-        suggested_sort_new=(pl.col("suggested_sort") == "new").sum(),
-        suggested_sort_new_comments=pl.col("thread_size").filter(pl.col("suggested_sort") == "new").sum(),
-        suggested_sort_random=(pl.col("suggested_sort") == "random").sum(),
-        suggested_sort_qa=(pl.col("suggested_sort") == "qa").sum(),
-        suggested_sort_confidence=(pl.col("suggested_sort") == "confidence").sum(),
-        suggested_sort_other=(~pl.col("suggested_sort").is_in(["new", "random", "qa", "confidence"])
-                              & pl.col("suggested_sort").is_not_null()).sum(),
-        suggested_sort_null=pl.col("suggested_sort").is_null().sum(),
-    ).sort("community")
-    cm.write_csv(out / "step1_contest_mode.csv")
-    cmy = roots.with_columns(year=pl.from_epoch(pl.col("created").cast(pl.Int64), "s").dt.year()).group_by(
-        "community", "year").agg(threads=pl.len(), contest_mode=pl.col("contest_mode").fill_null(False).sum(),
-                                 suggested_new=(pl.col("suggested_sort") == "new").sum()).sort("community", "year")
-    cmy.write_csv(out / "step1_contest_mode_by_year.csv")
-    roots.filter(pl.col("contest_mode").fill_null(False)).select(
-        "community", "thread_id", "created", "thread_size", "claimed_comments", "suggested_sort").write_csv(
-        out / "step1_contest_mode_threads.csv")
-
-    # staleness
-    st = staleness_table(items, ["community"])
-    st.write_csv(out / "step1_staleness_quantiles.csv")
-    sty = staleness_table(items.with_columns(
-        year=pl.from_epoch(pl.col("created").cast(pl.Int64), "s").dt.year()), ["community", "year"])
-    sty.write_csv(out / "step1_staleness_by_year.csv")
-    plot_staleness(items, ds, "community", "Reddit: score-snapshot staleness (retrieved_on − created_utc)",
-                   "threads with submission created 2018-01-01..2021-12-31")
-    plot_lag_by_month(items, ds)
-    (out / "step1_extra.json").write_text(json.dumps(extras, indent=2, default=str))
-    bot_hits(items, out)
-    print(integ_print(out))
+REDDIT_TABLES = ["integrity", "contest_mode", "contest_mode_by_year", "contest_mode_threads", "staleness_quantiles",
+                 "staleness_by_year", "staleness_by_month", "bot_author_hits", "split_counts"]
 
 
-def plot_lag_by_month(items: pl.DataFrame, ds: str):
-    _, fig, _ = dirs(ds)
-    d = items.filter(~pl.col("is_root")).with_columns(
+def reddit_parts_dir() -> Path:
+    d = ROOT / "outputs" / "reddit" / "parts"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def lag_by_month_table(items: pl.DataFrame) -> pl.DataFrame:
+    return items.filter(~pl.col("is_root")).with_columns(
         lag=pl.col("retrieved") - pl.col("created"),
         month=pl.from_epoch(pl.col("created").cast(pl.Int64), "s").dt.truncate("1mo"),
     ).group_by("community", "month").agg(
         q10=pl.col("lag").quantile(0.1), q50=pl.col("lag").median(), q90=pl.col("lag").quantile(0.9),
         missing=pl.col("lag").is_null().mean(),
     ).sort("community", "month")
-    d.write_csv(ROOT / "outputs" / ds / "step1_staleness_by_month.csv")
+
+
+def write_reddit_parts(sub: str, items: pl.DataFrame, split: pl.DataFrame):
+    """Per-subreddit step-1 tables; combine_reddit() concatenates them."""
+    parts = reddit_parts_dir()
+    integrity(items, ["community"]).write_csv(parts / f"{sub}__integrity.csv")
+    roots = items.filter(pl.col("is_root"))
+    cm = pl.col("contest_mode").fill_null(False)
+    roots.group_by("community").agg(
+        threads=pl.len(),
+        contest_mode_threads=cm.sum(),
+        contest_mode_threads_with_comments=(cm & (pl.col("thread_size") > 0)).sum(),
+        contest_mode_comments=pl.col("thread_size").filter(cm).sum(),
+        contest_mode_null=pl.col("contest_mode").is_null().sum(),
+        suggested_sort_new=(pl.col("suggested_sort") == "new").sum(),
+        suggested_sort_new_comments=pl.col("thread_size").filter(pl.col("suggested_sort") == "new").sum(),
+        suggested_sort_random=(pl.col("suggested_sort") == "random").sum(),
+        suggested_sort_random_comments=pl.col("thread_size").filter(pl.col("suggested_sort") == "random").sum(),
+        suggested_sort_qa=(pl.col("suggested_sort") == "qa").sum(),
+        suggested_sort_confidence=(pl.col("suggested_sort") == "confidence").sum(),
+        suggested_sort_other=(~pl.col("suggested_sort").is_in(["new", "random", "qa", "confidence"])
+                              & pl.col("suggested_sort").is_not_null()).sum(),
+        suggested_sort_null=pl.col("suggested_sort").is_null().sum(),
+    ).write_csv(parts / f"{sub}__contest_mode.csv")
+    roots.with_columns(year=pl.from_epoch(pl.col("created").cast(pl.Int64), "s").dt.year()).group_by(
+        "community", "year").agg(threads=pl.len(), contest_mode=cm.sum(),
+                                 suggested_new=(pl.col("suggested_sort") == "new").sum(),
+                                 suggested_random=(pl.col("suggested_sort") == "random").sum()).sort(
+        "community", "year").write_csv(parts / f"{sub}__contest_mode_by_year.csv")
+    roots.filter(cm | (pl.col("suggested_sort") == "random")).select(
+        "community", "thread_id", "created", "thread_size", "claimed_comments", "contest_mode", "suggested_sort"
+    ).write_csv(parts / f"{sub}__contest_mode_threads.csv")
+    staleness_table(items, ["community"]).write_csv(parts / f"{sub}__staleness_quantiles.csv")
+    staleness_table(items.with_columns(year=pl.from_epoch(pl.col("created").cast(pl.Int64), "s").dt.year()),
+                    ["community", "year"]).write_csv(parts / f"{sub}__staleness_by_year.csv")
+    lag_by_month_table(items).write_csv(parts / f"{sub}__staleness_by_month.csv")
+    items.filter(~pl.col("is_root") & (pl.col("bot_listed") | pl.col("bot_name_rule"))).group_by(
+        "community", "author", "bot_listed", "bot_name_rule").len().sort("len", descending=True).write_csv(
+        parts / f"{sub}__bot_author_hits.csv")
+    split.group_by(["month", "community", "split"]).len().sort(["month", "community", "split"]).write_csv(
+        parts / f"{sub}__split_counts.csv")
+
+
+def finish_reddit_sub(sub: str, items: pl.DataFrame, bots: set):
+    proc = proc_dir("reddit", sub)
+    proc.mkdir(parents=True, exist_ok=True)
+    items = flag_authors(items, bots, P["author_filters"]["top_active_fraction"], ["community"])
+    sizes = items.filter(~pl.col("is_root")).group_by("thread_id").agg(pl.len().alias("thread_size"))
+    items = items.join(sizes, on="thread_id", how="left").with_columns(pl.col("thread_size").fill_null(0))
+    threads = items.filter(pl.col("is_root")).select("thread_id", pl.col("created").alias("root_created"), "community")
+    split = assign_split(threads, "reddit", SEED, P["holdout"]["validation_fraction"], ["community"])
+    split.write_parquet(proc / "split.parquet")
+    items = items.join(split.select("thread_id", "split"), on="thread_id", how="left")
+    items.write_parquet(proc / "items.parquet")
+    write_reddit_parts(sub, items, split)
+
+
+def combine_reddit():
+    """Concatenate per-subreddit parts into outputs/reddit/step1_*.csv and redraw the figures."""
+    out, _, _ = dirs("reddit")
+    parts = reddit_parts_dir()
+    for t in REDDIT_TABLES:
+        files = sorted(parts.glob(f"*__{t}.csv"))
+        if files:
+            pl.concat([pl.read_csv(f, infer_schema_length=None) for f in files], how="diagonal_relaxed").write_csv(
+                out / f"step1_{t}.csv")
+    to_long(pl.read_csv(out / "step1_integrity.csv"), ["community"]).write_csv(out / "step1_integrity_long.csv")
+    extras = {f.name.split("__")[0]: json.loads(f.read_text()) for f in sorted(parts.glob("*__extra.json"))}
+    (out / "step1_extra.json").write_text(json.dumps(extras, indent=2, default=str))
+    cols = ["community", "is_root", "created", "retrieved"]
+    st = pl.concat([pl.read_parquet(f, columns=cols) for f in items_paths("reddit")])
+    plot_staleness(st, "reddit", "community", "Reddit: score-snapshot staleness (retrieved_on − created_utc)",
+                   "threads with submission created 2018-01-01..2021-12-31")
+    plot_lag_by_month(pl.read_csv(out / "step1_staleness_by_month.csv", try_parse_dates=True), "reddit")
+
+
+def run_reddit(subs: list[str] | None = None):
+    """One subreddit at a time: load, build trees, flag, split, write, then free memory."""
+    import gc
+    bots = load_bot_list(P["author_filters"]["bot_list_file"])
+    for sub in subs or reddit_subreddits():
+        print(f"[reddit] loading r/{sub}", flush=True)
+        nodes, extra = load_reddit(sub)
+        print(f"[reddit] r/{sub}: {nodes.height:,} nodes; building trees", flush=True)
+        t = build_trees(nodes)
+        del nodes
+        gc.collect()
+        t = t.with_columns(bad_t3_parent=(pl.col("parent_prefix") == "t3_") & (pl.col("parent_id") != pl.col("thread_id")))
+        extra["t3_parent_not_thread_root"] = int(t["bad_t3_parent"].sum())
+        (reddit_parts_dir() / f"{sub}__extra.json").write_text(json.dumps(extra, indent=2, default=str))
+        finish_reddit_sub(sub, t, bots)
+        del t
+        gc.collect()
+    combine_reddit()
+    print(integ_print(ROOT / "outputs" / "reddit"))
+
+
+def migrate_reddit_layout():
+    """One-off: split the old combined data/processed/reddit/items.parquet into per-subreddit files
+    without rebuilding trees, regenerate the per-subreddit parts, then remove the combined files."""
+    base = proc_dir("reddit")
+    old_items, old_split = base / "items.parquet", base / "split.parquet"
+    old_extra = json.loads((ROOT / "outputs" / "reddit" / "step1_extra.json").read_text())
+    subs = pl.scan_parquet(old_items).select("community").unique().collect()["community"].to_list()
+    for sub in subs:
+        d = proc_dir("reddit", sub)
+        d.mkdir(parents=True, exist_ok=True)
+        pl.scan_parquet(old_items).filter(pl.col("community") == sub).sink_parquet(d / "items.parquet")
+        split = pl.read_parquet(old_split).filter(pl.col("community") == sub)
+        split.write_parquet(d / "split.parquet")
+        (reddit_parts_dir() / f"{sub}__extra.json").write_text(json.dumps(old_extra.get(sub, {}), indent=2))
+        write_reddit_parts(sub, pl.read_parquet(d / "items.parquet"), split)
+        print(f"[migrate] r/{sub} done", flush=True)
+    old_items.unlink()
+    old_split.unlink()
+    combine_reddit()
+
+
+def plot_lag_by_month(d: pl.DataFrame, ds: str):
+    _, fig, _ = dirs(ds)
     f, ax = plt.subplots(figsize=(10, 4))
     for i, gname in enumerate(sorted(d["community"].unique())):
         x = d.filter(pl.col("community") == gname)
@@ -643,29 +712,28 @@ def coverage(stream: pl.DataFrame, ds: str) -> pl.DataFrame:
 
 
 def refresh_reddit_bot_flags():
-    """Recompute bot_listed from the current bot list without rebuilding trees (streamed), then
-    regenerate the integrity and bot-hit tables. Used when the explicit list changes."""
-    ds = "reddit"
-    out, _, proc = dirs(ds)
+    """Recompute bot_listed from the current bot list without rebuilding trees (streamed, one
+    subreddit at a time), then regenerate that subreddit's integrity and bot-hit parts."""
     bots = sorted(load_bot_list(P["author_filters"]["bot_list_file"]))
-    src, tmp = proc / "items.parquet", proc / "items.refresh.parquet"
-    (pl.scan_parquet(src)
-     .with_columns(bot_listed=pl.col("author").is_not_null() & pl.col("author").str.to_lowercase().is_in(bots))
-     .sink_parquet(tmp))
-    tmp.replace(src)
-    cols = ["community", "is_root", "thread_size", "reaches_root", "missing_parent", "orphan", "cross_thread_parent",
-            "cyclic", "time_since_parent", "author", "body_status", "is_root_author", "self_reply", "depth",
-            "claimed_comments", "bot_listed", "bot_name_rule", "top_active", "split"]
-    items = pl.read_parquet(src, columns=cols)
-    integ = integrity(items, ["community"])
-    integ.write_csv(out / "step1_integrity.csv")
-    to_long(integ, ["community"]).write_csv(out / "step1_integrity_long.csv")
-    bot_hits(items, out)
-    print(integ_print(out))
+    for src in items_paths("reddit"):
+        sub = src.parent.name
+        tmp = src.with_suffix(".refresh.parquet")
+        (pl.scan_parquet(src)
+         .with_columns(bot_listed=pl.col("author").is_not_null() & pl.col("author").str.to_lowercase().is_in(bots))
+         .sink_parquet(tmp))
+        tmp.replace(src)
+        write_reddit_parts(sub, pl.read_parquet(src), pl.read_parquet(src.parent / "split.parquet"))
+    combine_reddit()
 
 
 if __name__ == "__main__":
+    # reddit            -> study subreddits (partitions.json reddit.subreddits), one at a time
+    # reddit:A,B        -> the named subreddits only (e.g. reddit:Fantasy,AskHistorians)
     which = sys.argv[1:] or ["moltbook", "moltbook_crawl", "reddit", "hn"]
     for w in which:
+        if w.startswith("reddit:"):
+            run_reddit(w.split(":", 1)[1].split(","))
+            continue
         {"reddit": run_reddit, "hn": run_hn, "moltbook": run_moltbook, "moltbook_crawl": run_moltbook_crawl,
-         "refresh_reddit_bot_flags": refresh_reddit_bot_flags}[w]()
+         "refresh_reddit_bot_flags": refresh_reddit_bot_flags, "migrate_reddit_layout": migrate_reddit_layout,
+         "combine_reddit": combine_reddit}[w]()

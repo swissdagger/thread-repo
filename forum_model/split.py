@@ -28,3 +28,13 @@ def assign_split(threads: pl.DataFrame, dataset: str, seed: int, frac: float,
         .then(pl.lit("validation")).otherwise(pl.lit("calibration"))
     )
     return df.select("thread_id", "month", *strata, "split")
+
+
+def calibration_fold(thread_ids: list[str], dataset: str, seed: int, heldout_frac: float = 0.2) -> list[str]:
+    """Inner fit / held-out fold WITHIN the calibration split (for model selection by held-out
+    likelihood), so the 20 % validation split stays untouched. Deterministic hash."""
+    out = []
+    for t in thread_ids:
+        u = int(hashlib.sha256(f"{seed}:fold:{dataset}:{t}".encode()).hexdigest()[:13], 16) / 16 ** 13
+        out.append("heldout" if u < heldout_frac else "fit")
+    return out

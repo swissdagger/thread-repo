@@ -57,7 +57,18 @@ def _resolve(parent_ix: pl.DataFrame) -> pl.DataFrame:
     return df.select("ix", top="anc", dist="dist", cyclic=~pl.col("done"))
 
 
+CORE = ["thread_id", "id", "parent_id", "is_root", "created", "author"]
+
+
 def build_trees(nodes: pl.DataFrame) -> pl.DataFrame:
+    """Build features on a slim core frame; passthrough columns are re-attached at the end by row
+    position (every join below keeps the left row order), which keeps peak memory low."""
+    extra = nodes.drop(CORE)
+    out = _build_core(nodes.select(CORE))
+    return out.hstack(extra)
+
+
+def _build_core(nodes: pl.DataFrame) -> pl.DataFrame:
     n = nodes.with_row_index("ix").with_columns(pl.col("ix").cast(IX))
     key = n.select(pl.col("id").alias("parent_id"), pl.col("ix").alias("pix"))
     n = n.join(key, on="parent_id", how="left", maintain_order="left")
@@ -119,5 +130,6 @@ def build_trees(nodes: pl.DataFrame) -> pl.DataFrame:
         self_reply=pl.when(is_c & pl.col("author").is_not_null() & pl.col("parent_author").is_not_null())
         .then(pl.col("author") == pl.col("parent_author")),
     )
+    n = n.sort("ix")  # guard: restore input order before re-attaching passthrough columns
     return n.drop("ix", "pix", "top", "dist", "_top_is_root", "_top_created", "_top_author", "_top_thread",
                   "_par_thread", "_c_created", "_c_author", strict=False)

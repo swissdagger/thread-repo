@@ -36,7 +36,32 @@
       "2021-12-31T23:59:59"
     ],
     "thread_window_applies_to": "submission created_utc (root). All comments on in-window submissions are kept, including those after the window end, so reply delays are not truncated at 2021-12-31.",
-    "observation_end_utc": "2023-01-31T23:59:59"
+    "observation_end_utc": "2023-01-31T23:59:59",
+    "proxy_c_subreddits": {
+      "Fantasy": {
+        "role": "proxy (c) PRIMARY",
+        "threads": "contest_mode = true",
+        "window": "same as reddit.thread_window_utc"
+      },
+      "AskHistorians": {
+        "role": "proxy (c) SECONDARY",
+        "threads": "suggested_sort = 'random'",
+        "window": "same as reddit.thread_window_utc"
+      },
+      "use_restriction": "These subreddits are used only for the position check (Step 4, proxy c). Reserved for the human baseline like all other partitions; never reused for agent conditioning.",
+      "pre_use_checks": "S10 bot review (authors in >1% of threads, by hand) and deletion/removal rates reported before any use.",
+      "contest_mode_effects": "Per Reddit's API description as reproduced in PRAW 7.7.1 SubmissionModeration.contest_mode: comment thread defaults to random sort; replies to top-level comments are hidden behind '[show replies]'; scores hidden from non-moderators (obscured to 1 via the API).",
+      "event_restriction": "Proxy (c) uses only replies whose parent is a top-level comment (depth-2 comments): top-level comments are the only items shown in randomized order; deeper comments are collapsed by default. Applied to AskHistorians random-sort threads too, for comparability (random sort does not collapse replies)."
+    },
+    "proxy_d": {
+      "subreddits": [
+        "philosophy",
+        "buildapc"
+      ],
+      "threads": "suggested_sort = 'new'",
+      "note": "within the two study subreddits only (decision after step 2)"
+    },
+    "processing": "one subreddit at a time: data/processed/reddit/<subreddit>/items.parquet and split.parquet"
   },
   "hn": {
     "thread_window_utc": [
@@ -92,7 +117,11 @@
     "unit": "thread",
     "stratify_by": "calendar month (UTC) of root creation, per dataset (Reddit additionally per subreddit, HN additionally per post class)",
     "method": "within each stratum, threads are ranked by sha256('<seed>:<dataset>:<thread_id>') and the lowest round(0.2 * n) are assigned to validation; deterministic, no RNG state",
-    "assignment_files": "data/processed/<dataset>/split.parquet (regenerable from this file; per-stratum counts in outputs/<dataset>/step1_split_counts.csv)"
+    "assignment_files": "data/processed/<dataset>/split.parquet (regenerable from this file; per-stratum counts in outputs/<dataset>/step1_split_counts.csv)",
+    "inner_calibration_fold": {
+      "purpose": "model selection by held-out likelihood inside the calibration split (step 3 on); the 20% validation split is never used for fitting or selection",
+      "method": "sha256('<seed>:fold:<dataset>:<thread_id>') -> uniform; < 0.2 -> 'heldout', else 'fit'"
+    }
   },
   "quantity_lists": {
     "calibration": [
@@ -126,5 +155,19 @@
   },
   "descriptive_scope": {
     "step2": "Descriptive statistics are computed on the CALIBRATION split only; validation threads are left untouched for model validation."
+  },
+  "step3": {
+    "fit_cap_parents": 2000000,
+    "fit_cap_method": "if the fit fold has more parent comments, keep those with sha256('<seed>:cap:<id>') in the lowest 2,000,000",
+    "events": "first direct reply that is not a self-reply and not by an explicit-list bot, created before the parent's censoring time",
+    "censoring": {
+      "reddit": "data end (partitions reddit.observation_end_utc)",
+      "hn": "data end (partitions hn.observation_end_utc)",
+      "moltbook": "thread's last crawl time (max crawled_at in the thread); comments created in contiguous segment 1 are also censored at the segment end (comment outage start)"
+    },
+    "moltbook_threads": {
+      "primary": "complete (stored >= API-reported), non-spam, calibration split; parent comments created in one of the two contiguous segments",
+      "sensitivity": "adds incomplete non-spam threads, each censored at the creation time of its last stored comment (assumes the stored comments are the earliest; the API's selection rule is undocumented, see reports/step2b.md)"
+    }
   }
 }
