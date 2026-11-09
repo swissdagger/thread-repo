@@ -136,3 +136,58 @@ class Prepared:
             info += (wm * (x - ck) ** 2).sum()
             eff += np.bincount(thread_idx, weights=w * (x - ck) * (self.D[k] - mu), minlength=G)
         return float(np.sqrt((eff ** 2).sum()) / info) if info > 0 else float("nan")
+
+
+def fit_multi(prep: "Prepared", X: np.ndarray, w: np.ndarray, thread_idx: np.ndarray, iters: int = 60) -> dict:
+    """First-reply PEM with several static covariates: log h_i(t) = alpha_k + x_i' beta.
+    alpha_k profiled out; Newton on beta; thread-clustered sandwich covariance from per-thread
+    efficient scores sum_i sum_k w_i (x_i - c_k)(d_ik - mu_ik), c_k = weighted mean of x among expected
+    events in bin k."""
+    N, p = X.shape
+    beta = np.zeros(p)
+    E = prep.E.astype(np.float64)
+    D = prep.D
+    G = int(thread_idx.max()) + 1
+    for it in range(iters):
+        eta = X @ beta
+        ex = np.exp(eta)
+        score = np.zeros(p)
+        H = np.zeros((p, p))
+        for k in range(prep.K):
+            wm0 = w * ex * E[k]
+            s0 = wm0.sum()
+            dk = (w * D[k]).sum()
+            if s0 <= 0 or dk <= 0:
+                continue
+            a = np.log(dk / s0)
+            mu = np.exp(a) * wm0
+            m1 = mu @ X
+            score += X.T @ (w * D[k]) - m1
+            H += (X * mu[:, None]).T @ X - np.outer(m1, m1) / mu.sum()
+        step = np.linalg.solve(H, score)
+        beta += step
+        if np.max(np.abs(step)) < 1e-9:
+            break
+    eta = X @ beta
+    ex = np.exp(eta)
+    eff = np.zeros((G, p))
+    H = np.zeros((p, p))
+    alpha = np.full(prep.K, np.nan)
+    for k in range(prep.K):
+        wm0 = w * ex * E[k]
+        s0 = wm0.sum()
+        dk = (w * D[k]).sum()
+        if s0 <= 0 or dk <= 0:
+            continue
+        alpha[k] = np.log(dk / s0)
+        mu_unw = np.exp(alpha[k]) * ex * E[k]
+        mu = w * mu_unw
+        ck = (mu @ X) / mu.sum()
+        H += (X * mu[:, None]).T @ X - np.outer(mu @ X, mu @ X) / mu.sum()
+        r = w * (D[k] - mu_unw)
+        for j in range(p):
+            eff[:, j] += np.bincount(thread_idx, weights=r * (X[:, j] - ck[j]), minlength=G)
+    Hinv = np.linalg.inv(H)
+    V = Hinv @ (eff.T @ eff) @ Hinv
+    return {"beta": beta, "se": np.sqrt(np.diag(V)), "alpha": alpha, "n": N, "threads": G,
+            "events": float((w * D.sum(0)).sum())}

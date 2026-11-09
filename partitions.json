@@ -110,6 +110,14 @@
       "source": "De Marzo & Garcia (2026), Collective Behavior of AI Agents: the Case of Moltbook",
       "rule": "for posts with >= 5 stored comments, exclude the post if unique comment content / stored comments < 0.5 or unique comment authors / stored comments < 0.2",
       "applies_to": "all Moltbook analyses from step 2 on"
+    },
+    "archive_crosscheck": {
+      "posts_created_utc": [
+        "2026-02-08T00:00:00",
+        "2026-02-14T23:59:59"
+      ],
+      "observation_end_utc": "2026-03-31T23:59:59",
+      "note": "archive cross-check only (decision after step 1); split by the same hash rule with dataset key 'moltbook_archive'; used in step 4b speed reconciliation"
     }
   },
   "holdout": {
@@ -147,9 +155,9 @@
     "not_used": "PublicResourceLicense/Reddit_Blocklist (380k accounts) is not used"
   },
   "position_proxies": {
-    "a": "confidence-sort position from final score; look-ahead-affected (Reddit only)",
+    "a": "confidence-sort position from final score; look-ahead-affected (Reddit only). Reported with ties broken oldest-first and at random; dropped for a subreddit if the two disagree materially (step4b.proxy_a_ties). Step 4b: no material disagreement in philosophy or buildapc, kept for both",
     "b": "early-thread arrival order, first 30 minutes; MAIN identification",
-    "c": "contest-mode threads (order randomized); see outputs/reddit/step2_sort_census.csv before adding subreddits",
+    "c": "contest-mode threads (order randomized). PLACEBO CHECK ONLY (decision after the audit): no further contest-mode data",
     "d": "suggested_sort = 'new' threads; second arrival-order identification (display order = reverse arrival)",
     "hn": "HN comment scores are hidden and its sort uses them, so HN position is latent: use only proxy (b) on HN"
   },
@@ -169,5 +177,53 @@
       "primary": "complete (stored >= API-reported), non-spam, calibration split; parent comments created in one of the two contiguous segments",
       "sensitivity": "adds incomplete non-spam threads, each censored at the creation time of its last stored comment (assumes the stored comments are the earliest; the API's selection rule is undocumented, see reports/step2b.md)"
     }
+  },
+  "step4b": {
+    "age_fe": {
+      "thread_age_bins_s": [
+        0,
+        600,
+        1800,
+        3600,
+        7200,
+        14400,
+        28800,
+        57600,
+        115200,
+        259200
+      ],
+      "horizon_s": 259200,
+      "cap_parents": 400000,
+      "cap_method": "threads in calibration split ordered by sha256('<seed>:4b:<thread_id>'), taken until the parent count would exceed the cap"
+    },
+    "proxy_a_ties": {
+      "variants": [
+        "oldest",
+        "random"
+      ],
+      "material_disagreement": "|beta_random - beta_oldest| > max(0.05, 2 x thread-clustered SE) or |flattening difference| > 0.01 or the flattening CIs fall on opposite sides of 0; if material, proxy (a) is dropped for that subreddit",
+      "outcome": {
+        "philosophy": "kept",
+        "buildapc": "kept"
+      }
+    },
+    "position_b": {
+      "window_s": 1800,
+      "rank": "arrival rank among siblings created in the first 30 min of the thread; parents with >= 2 such siblings",
+      "censoring": "min(observation end, thread start + 30 min)",
+      "controls": [
+        "log1p(minutes since thread start)",
+        "depth dummies (only those with >= 10 first-reply events)"
+      ],
+      "placebo": "r/Fantasy contest-mode threads, top-level comments; control: r/Fantasy non-contest threads with >= 20 comments"
+    },
+    "speed": {
+      "horizon_s": 259200,
+      "archive_window": "moltbook.archive_crosscheck"
+    }
+  },
+  "mu_horizon": {
+    "primary_s": 259200,
+    "reported_s": 604800
   }
 }

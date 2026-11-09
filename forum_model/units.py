@@ -66,11 +66,14 @@ def hn_population(comm: str, extra: list[str] = (), hn_items: pl.DataFrame | Non
     return it, {"nonroot": ~pl.col("is_root"), "root_live": pl.col("is_root")}
 
 
-def moltbook_population(pop: str = "complete", extra: list[str] = ()) -> tuple[pl.DataFrame, dict]:
+def moltbook_population(pop: str = "complete", extra: list[str] = (), include_spam: bool = False,
+                        segments: bool = True) -> tuple[pl.DataFrame, dict]:
+    """include_spam / segments=False: speed-reconciliation variants only (defaults per docs/definitions.md)."""
     ds = "moltbook_crawl"
     it = load(ds, None, ["retrieved", "claimed_comments", *extra])
-    spam = pl.read_parquet(proc_dir(ds) / "spam_flags.parquet").filter(pl.col("spam"))["thread_id"]
-    it = it.filter(~pl.col("thread_id").is_in(spam.implode()))
+    if not include_spam:
+        spam = pl.read_parquet(proc_dir(ds) / "spam_flags.parquet").filter(pl.col("spam"))["thread_id"]
+        it = it.filter(~pl.col("thread_id").is_in(spam.implode()))
     roots = it.filter(pl.col("is_root")).select("thread_id", complete=pl.col("thread_size") >= pl.col("claimed_comments"))
     last_stored = it.filter(~pl.col("is_root")).group_by("thread_id").agg(last_stored=pl.col("created").max())
     crawl_end = it.group_by("thread_id").agg(crawl_end=pl.col("retrieved").max())
@@ -81,8 +84,11 @@ def moltbook_population(pop: str = "complete", extra: list[str] = ()) -> tuple[p
     seg_ok = in_seg1 | (pl.col("created") >= s2a)
     thread_end = pl.when(pl.col("complete")).then(pl.col("crawl_end")).otherwise(
         pl.min_horizontal("crawl_end", "last_stored"))
-    it = it.with_columns(obs_end=pl.when(in_seg1).then(pl.min_horizontal(thread_end, pl.lit(s1b))).otherwise(thread_end),
-                         seg_ok=seg_ok)
+    if not segments:  # no outage handling: every comment observed to its thread's end
+        it = it.with_columns(obs_end=thread_end, seg_ok=pl.lit(True))
+    else:
+        it = it.with_columns(obs_end=pl.when(in_seg1).then(pl.min_horizontal(thread_end, pl.lit(s1b))).otherwise(thread_end),
+                             seg_ok=seg_ok)
     if pop == "complete":
         it = it.filter(pl.col("complete"))
     nr = ~pl.col("is_root") & pl.col("seg_ok")
@@ -94,8 +100,11 @@ def moltbook_population(pop: str = "complete", extra: list[str] = ()) -> tuple[p
 # parents and replies
 # ------------------------------------------------------------------------------------------
 
-def build_units(items: pl.DataFrame, parent_filter: pl.Expr, dataset: str, keep: list[str] = ()) -> dict:
-    """items must carry 'obs_end'. keep: extra parent columns to carry through."""
+def build_units(items: pl.DataFrame, parent_filter: pl.Expr, dataset: str, keep: list[str] = (),
+                include_self: bool = False, include_bots: bool = False) -> dict:
+    """items must carry 'obs_end'. keep: extra parent columns to carry through.
+    include_self / include_bots: count self-replies / explicit-list bots as events and bots as parents
+    (speed reconciliation only; the defaults follow docs/definitions.md)."""
     cal = items.filter(pl.col("split") == "calibration")
     threads = cal.filter(pl.col("is_root"))["thread_id"].unique().to_list()
     fold = pl.DataFrame({"thread_id": threads, "fold": calibration_fold(threads, dataset, SEED)})
@@ -104,11 +113,13 @@ def build_units(items: pl.DataFrame, parent_filter: pl.Expr, dataset: str, keep:
         cal_vis = ~pl.col("excluded").fill_null(False)
     else:
         cal_vis = pl.lit(True)
-    par = cal.filter(parent_filter & cal_vis & ~pl.col("orphan").fill_null(False) & ~pl.col("bot_listed").fill_null(False))
+    not_bot = pl.lit(True) if include_bots else ~pl.col("bot_listed").fill_null(False)
+    not_self = pl.lit(True) if include_self else ~pl.col("self_reply").fill_null(False)
+    par = cal.filter(parent_filter & cal_vis & ~pl.col("orphan").fill_null(False) & not_bot)
     par = par.with_columns(c=(pl.col("obs_end") - pl.col("created")).clip(lower_bound=TMIN)).filter(
         pl.col("obs_end") > pl.col("created"))
-    kids = cal.filter(~pl.col("is_root") & cal_vis & ~pl.col("orphan").fill_null(False) & ~pl.col("bot_listed").fill_null(False)
-                      & ~pl.col("self_reply").fill_null(False)).select(
+    kids = cal.filter(~pl.col("is_root") & cal_vis & ~pl.col("orphan").fill_null(False) & not_bot
+                      & not_self).select(
         pid="parent_id", kid_created="created", kid_top="top_active")
     rep = par.select("id", "created", "c", "fold").join(kids, left_on="id", right_on="pid", how="inner").with_columns(
         delay=(pl.col("kid_created") - pl.col("created")).clip(lower_bound=0.0)).filter(pl.col("delay") <= pl.col("c"))
@@ -156,3 +167,43 @@ def step3_populations():
                 continue
             yield "moltbook_crawl", "moltbook", unit if pop == "complete" else f"{unit}__{pop}", \
                 build_units(it, f, "moltbook_crawl")
+
+
+def moltbook_archive_population(lo_utc: str, hi_utc: str, obs_end_utc: str) -> tuple[pl.DataFrame, dict]:
+    """SimulaMet observatory archive, posts created in [lo, hi] (cross-check role: from 2026-02-08 on).
+    Latest snapshot per id; trees built here; calibration/validation split by the same hash rule
+    (dataset key 'moltbook_archive'); every thread observed until obs_end (archive comments are
+    'substantially complete up to the end of March 2026', README). No spam filter or completeness
+    restriction is available for the archive."""
+    import duckdb
+
+    from . import ROOT
+    from .split import assign_split
+    from .trees import build_trees
+    lo, hi, end = ep(lo_utc), ep(hi_utc), ep(obs_end_utc)
+    pf = str(ROOT / "data" / "raw" / "moltbook" / "data" / "posts" / "*.parquet")
+    cf = str(ROOT / "data" / "raw" / "moltbook" / "data" / "comments" / "*.parquet")
+    c = duckdb.connect()
+    posts = c.sql(f"""select id, any_value(agent_id) agent_id, min(epoch(created_at::timestamptz)) created
+                      from read_parquet('{pf}', union_by_name=true) group by id
+                      having min(epoch(created_at::timestamptz)) between {lo} and {hi}""").pl()
+    com = c.sql(f"""select id, any_value(post_id) post_id, any_value(parent_id) parent_id, any_value(agent_id) agent_id,
+                           min(epoch(created_at::timestamptz)) created
+                    from read_parquet('{cf}', union_by_name=true) where created_at is not null group by id""").pl()
+    c.close()
+    com = com.filter(pl.col("post_id").is_in(posts["id"].implode()))
+    nodes = pl.concat([
+        posts.select(thread_id="id", id="id", parent_id=pl.lit(None, pl.String), is_root=pl.lit(True),
+                     created="created", author="agent_id"),
+        com.select(thread_id="post_id", id="id",
+                   parent_id=pl.when(pl.col("parent_id").is_null() | (pl.col("parent_id") == "")).then(pl.col("post_id"))
+                   .otherwise(pl.col("parent_id")), is_root=pl.lit(False), created="created", author="agent_id")])
+    it = build_trees(nodes)
+    sizes = it.filter(~pl.col("is_root")).group_by("thread_id").agg(thread_size=pl.len())
+    it = it.join(sizes, on="thread_id", how="left").with_columns(pl.col("thread_size").fill_null(0))
+    roots = it.filter(pl.col("is_root")).select("thread_id", root_created="created")
+    split = assign_split(roots, "moltbook_archive", SEED, P["holdout"]["validation_fraction"], [])
+    it = it.join(split.select("thread_id", "split"), on="thread_id", how="left").with_columns(
+        community=pl.lit("moltbook_archive"), bot_listed=pl.lit(False), top_active=pl.lit(False),
+        obs_end=pl.lit(end))
+    return it, {"nonroot": ~pl.col("is_root"), "root_live": pl.col("is_root")}

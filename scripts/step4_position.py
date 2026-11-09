@@ -167,17 +167,23 @@ def static_bucket(d: pl.DataFrame):
 # proxies
 # ------------------------------------------------------------------------------------------
 
-def proxy_a(sub: str) -> list[dict]:
+def proxy_a(sub: str, ties: str = "oldest") -> list[dict]:
+    """ties: 'oldest' (equal final scores ordered oldest first) or 'random' (seeded hash of the comment
+    id). Both are assumptions: Reddit's tie-break under 'best' is not observable (audit check 9)."""
     it, _ = reddit_population(sub, EXTRA)
-    sib = siblings_frame(it).with_columns(pl.col("score").fill_null(0)).sort(
-        ["parent_id", "score", "created"], descending=[False, True, False]).with_columns(
+    sib = siblings_frame(it).with_columns(pl.col("score").fill_null(0))
+    if ties == "random":
+        sib = sib.with_columns(tie=pl.concat_str(pl.lit(f"{P['seed']}:tie:"), pl.col("id")).hash(seed=P["seed"]))
+    else:
+        sib = sib.with_columns(tie=pl.col("created"))
+    sib = sib.sort(["parent_id", "score", "tie"], descending=[False, True, False]).with_columns(
         pos=pl.int_range(1, pl.len() + 1).over("parent_id"), n_sib=pl.len().over("parent_id"))
     U = build_units(it, ~pl.col("is_root"), f"reddit:{sub}")
     par = U["parents"].join(sib.select("id", "pos", "n_sib"), on="id", how="inner").filter(pl.col("n_sib") >= 2)
     del it, sib
     gc.collect()
-    return fit_proxy({"proxy": "a_final_score_rank", "dataset": "reddit", "community": sub}, par, EDGES,
-                     static_bucket, (60, 86400), parametric=True)
+    return fit_proxy({"proxy": "a_final_score_rank", "dataset": "reddit", "community": sub, "ties": ties}, par,
+                     EDGES, static_bucket, (60, 86400), parametric=True)
 
 
 def proxy_b(ds: str, comm: str, it: pl.DataFrame) -> list[dict]:
@@ -280,12 +286,12 @@ def save(name: str, rows: list[dict]):
                      "log_hazard_per_s", "events"] if c in df.columns]).write_csv(o / f"step4_{name}_baseline.csv")
 
 
-def run_a():
+def run_a(ties: str = "oldest"):
     rows = []
     for sub in P["reddit"]["subreddits"]:
-        rows += proxy_a(sub)
+        rows += proxy_a(sub, ties)
         gc.collect()
-    save("a", rows)
+    save("a" if ties == "oldest" else "a_ties_random", rows)
 
 
 def run_b():
@@ -369,4 +375,5 @@ def run_figures():
 if __name__ == "__main__":
     which = sys.argv[1:] or ["c", "d", "b", "a", "figures"]
     for w in which:
-        {"a": run_a, "b": run_b, "c": run_c, "d": run_d, "figures": run_figures}[w]()
+        {"a": run_a, "a_ties_random": lambda: run_a("random"), "b": run_b, "c": run_c, "d": run_d,
+         "figures": run_figures}[w]()
