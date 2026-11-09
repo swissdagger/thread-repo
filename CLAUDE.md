@@ -2,7 +2,8 @@
 
 This repo runs exploratory analysis for an exposure-first model of forum participation
 (humans on Reddit and Hacker News, LLM agents on Moltbook). The task is in `docs/brief.md`.
-The model and its traps are in `docs/model_reference.md`. Read both before writing code.
+The model and its traps are in `docs/model_reference.md`; `docs/definitions.md` is binding for every
+quantity. Read them before writing code.
 
 ## Working rules
 
@@ -22,8 +23,9 @@ The model and its traps are in `docs/model_reference.md`. Read both before writi
 - `partitions.json` records exactly which subreddits, time windows and HN date ranges each fit
   uses. Every script reads it. These partitions are reserved for the human baseline and must
   never be reused later for agent conditioning.
-- Drop authors on the standard Pushshift-era bot lists. Run every analysis with and without
-  the top 1% most active authors; report both.
+- Drop authors on the explicit bot list, and hand-review every author active in more than 1% of
+  a subreddit's threads before using it. Report the top-1% comment share as a population
+  descriptor; removing the top 1% is not a robustness check.
 - Hold out 20% of threads from every fit (split by thread, stratified by month) for validation.
 - Two fixed lists, nothing on both:
   - Calibration: reply timing, parent choices.
@@ -38,6 +40,8 @@ The model and its traps are in `docs/model_reference.md`. Read both before writi
   predicting, and it grows with age. Any position proxy built from it must be labelled as such
   and paired with the early-thread and contest-mode versions.
 - Never define "answered question" by score. Use the arrival of an answer comment.
-- The branching ratio is the integral of the fitted self-excitation kernel. The depth-tail
-  slope is a comparison, not the estimate.
+- The branching ratio μ is the censoring-adjusted mean offspring defined in `docs/definitions.md`.
+  The first-reply kernel integral is μ_first and the depth-tail slope is a comparison; neither is μ.
+- Every reported number carries a 95% thread-clustered bootstrap interval. Do not state a finding
+  from a point estimate alone, and compare populations on the per-author version.
 - Reply half-life is a calibration quantity; it is never a validation metric.
