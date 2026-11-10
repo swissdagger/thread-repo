@@ -213,3 +213,13 @@ its statistic. Speed numbers are calibration quantities and are never validation
   [2.2 d, 6 d]).
 - **Author concentration:** among replies in a delay window, the shares written by the top 1, 5 and 10
   authors, the Herfindahl index Σ share², and the number of distinct authors.
+
+## Moltbook scaffolding accounts (from Step 6b on)
+
+- `config/moltbook_scaffolding_accounts.txt` lists agents whose reply timing comes from a sweep or batch
+  routine: sweepers, swarm accounts, and repliers to old comments only. Each entry gives its reason.
+- They are not dropped. **Every Moltbook timing fit is reported twice**, with and without them. "Timing
+  fit" means first-reply kernels, all-reply intensities, speed numbers and μ.
+- The "without" version excludes them both as parents and as reply events. Neither version replaces the
+  other.
+- Names are matched on crawl `author_name` and archive `agent_name`; `AlphaSwarm_*` is a prefix match.

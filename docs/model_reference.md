@@ -55,7 +55,11 @@ A and E are latent in human data.
 - a(act): dialogue-act multiplier, act ∈ {question, answer, agree, challenge}; a(answer) = 1.
   Comments by the post's author draw 19–36% fewer replies on HN within thread × time, about 0 on
   Reddit, 74% fewer on Moltbook
-- κ: saturation discount once a question post has an answer
+- κ: saturation discount once a question post has an answer. Respecified as depletion: damping of new
+  top-level comments in question threads that builds with the number of top-level comments, not a single
+  step at the first. To be estimated in the full fit at fine time resolution; once the dialogue-act
+  classifier exists, test whether answer comments drive it. Step 5-type estimators are not used for
+  parameter values (placebo-shown bin bias).
 - No author-activity term: with thread fixed effects, author activity has no effect (0–6% per 10×)
 - Self-replies excluded before every fit and depth statistic
 

@@ -118,6 +118,13 @@
       ],
       "observation_end_utc": "2026-03-31T23:59:59",
       "note": "archive cross-check only (decision after step 1); split by the same hash rule with dataset key 'moltbook_archive'; used in step 4b speed reconciliation"
+    },
+    "scaffolding_accounts": {
+      "file": "config/moltbook_scaffolding_accounts.txt",
+      "match": "author name (crawl author_name, archive agent_name); trailing * = prefix match",
+      "rule": "every Moltbook timing fit (first-reply kernels, all-reply intensities, speed numbers, mu) is reported with and without these accounts, excluded both as parents and as reply events; neither version replaces the other",
+      "residual_crawl_bump": "the residual 1-2 d bump in crawl root intensity after removing the sweepers (Step 6b.1) is not pursued",
+      "decided": "after Step 6b"
     }
   },
   "holdout": {
