@@ -91,6 +91,85 @@ def fit_fe_poisson(g: np.ndarray, y: np.ndarray, X: np.ndarray, offset: np.ndarr
             "n_clusters": int(cluster.max()) + 1, "n_events": float(y.sum())}
 
 
+class FEPoissonBoot:
+    """Conditional (fixed-effects) Poisson prepared once and refitted under cluster weights, for the
+    thread-clustered bootstrap. Groups g must be nested in clusters (e.g. thread x time-bin cells in
+    threads). cluster: integer ids 0..C-1 in the caller's numbering; weights are passed per cluster id
+    (multinomial counts for a bootstrap replicate). The point fit (unit weights) equals fit_fe_poisson."""
+
+    def __init__(self, g: np.ndarray, y: np.ndarray, X: np.ndarray, offset: np.ndarray, cluster: np.ndarray):
+        G0 = g.max() + 1
+        N = np.bincount(g, weights=y, minlength=G0)
+        n = np.bincount(g, minlength=G0)
+        keep = (N[g] > 0) & (n[g] >= 2)
+        self.cl = cluster[keep].astype(np.int64)
+        _, self.g = np.unique(g[keep], return_inverse=True)
+        self.y, self.o = y[keep].astype(float), offset[keep]
+        self.G = int(self.g.max()) + 1
+        self.N = np.bincount(self.g, weights=self.y, minlength=self.G)
+        X = X[keep]
+        self.p_all = X.shape[1]
+        n_g = np.bincount(self.g, minlength=self.G).astype(float)
+        Xw = X - _group_sum(self.g, X, self.G)[self.g] / n_g[self.g][:, None]
+        ss = (Xw ** 2).sum(0)
+        cols = []
+        for j in np.argsort(-ss):
+            if ss[j] <= 1e-10 * max(len(self.y), 1):
+                continue
+            cand = sorted(cols + [j])
+            if np.linalg.matrix_rank(Xw[:, cand].T @ Xw[:, cand], tol=1e-8 * len(self.y)) == len(cand):
+                cols = cand
+        self.cols = sorted(cols)
+        self.X = np.ascontiguousarray(X[:, self.cols])
+        self.n_rows = int(keep.sum())
+
+    def _probs(self, b, w):
+        eta = self.X @ b + self.o
+        mx = np.full(self.G, -np.inf)
+        np.maximum.at(mx, self.g, eta)
+        e = np.exp(eta - mx[self.g])
+        S = np.bincount(self.g, weights=e, minlength=self.G)
+        logp = eta - mx[self.g] - np.log(S[self.g])
+        return np.exp(logp), float(np.sum(w * self.y * logp))
+
+    def fit(self, w_cluster: np.ndarray | None = None, b0: np.ndarray | None = None, iters: int = 60,
+            se: bool = False) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
+        """Returns full-length coef (NaN for dropped columns); with se=True also the sandwich SEs."""
+        X, g, G, N, y = self.X, self.g, self.G, self.N, self.y
+        w = np.ones(len(y)) if w_cluster is None else w_cluster[self.cl].astype(float)
+        wg = np.zeros(G)
+        wg[g] = w  # constant within a group (groups nested in clusters)
+        b = np.zeros(X.shape[1]) if b0 is None else np.nan_to_num(b0[self.cols])
+        p, ll = self._probs(b, w)
+        for _ in range(iters):
+            r = w * (y - N[g] * p)
+            grad = X.T @ r
+            xbar = _group_sum(g, p[:, None] * X, G)
+            Hm = X.T @ (X * (w * N[g] * p)[:, None]) - (xbar * (wg * N)[:, None]).T @ xbar
+            step = np.linalg.lstsq(Hm, grad, rcond=None)[0]
+            lam = 1.0
+            while True:
+                p_new, ll_new = self._probs(b + lam * step, w)
+                if ll_new >= ll - 1e-10 * abs(ll) or lam < 1e-8:
+                    break
+                lam /= 2
+            b, p, ll = b + lam * step, p_new, ll_new
+            if np.max(np.abs(lam * step)) < 1e-8:
+                break
+        coef = np.full(self.p_all, np.nan)
+        coef[self.cols] = b
+        if not se:
+            return coef
+        xbar = _group_sum(g, p[:, None] * X, G)
+        Hm = X.T @ (X * (w * N[g] * p)[:, None]) - (xbar * (wg * N)[:, None]).T @ xbar
+        sc = _group_sum(self.cl, X * (w * (y - N[g] * p))[:, None], int(self.cl.max()) + 1)
+        Hinv = np.linalg.inv(Hm)
+        V = Hinv @ (sc.T @ sc) @ Hinv
+        s = np.full(self.p_all, np.nan)
+        s[self.cols] = np.sqrt(np.diag(V))
+        return coef, s
+
+
 def fit_pooled_poisson(g: np.ndarray, y: np.ndarray, X: np.ndarray, offset: np.ndarray, iters: int = 50) -> dict:
     """Poisson GLM with a common intercept (no thread effects); thread-clustered SEs."""
     Xi = np.column_stack([np.ones(len(y)), X])

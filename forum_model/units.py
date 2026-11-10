@@ -120,7 +120,7 @@ def build_units(items: pl.DataFrame, parent_filter: pl.Expr, dataset: str, keep:
         pl.col("obs_end") > pl.col("created"))
     kids = cal.filter(~pl.col("is_root") & cal_vis & ~pl.col("orphan").fill_null(False) & not_bot
                       & not_self).select(
-        pid="parent_id", kid_created="created", kid_top="top_active")
+        pid="parent_id", kid_created="created", kid_top="top_active", kid_author="author")
     rep = par.select("id", "created", "c", "fold").join(kids, left_on="id", right_on="pid", how="inner").with_columns(
         delay=(pl.col("kid_created") - pl.col("created")).clip(lower_bound=0.0)).filter(pl.col("delay") <= pl.col("c"))
     first = rep.group_by("id").agg(t_first=pl.col("delay").min(), n_replies=pl.len())
@@ -134,7 +134,16 @@ def build_units(items: pl.DataFrame, parent_filter: pl.Expr, dataset: str, keep:
         w_pa=pl.when(pl.col("author").is_null()).then(0.0).otherwise(1.0 / pl.col("_na"))).drop("_na")
     cols = ["id", "thread_id", "fold", "author", "top_active", "depth", "c", "t", "d", "n_replies", "w_pa"]
     return {"parents": par.select(list(dict.fromkeys(cols + [k for k in keep if k in par.columns]))),
-            "replies": rep.select(pl.col("id").alias("parent"), "fold", "delay", "kid_top")}
+            "replies": rep.select(pl.col("id").alias("parent"), "fold", "delay", "kid_top", "kid_author")}
+
+
+def refirst(par: pl.DataFrame, rep: pl.DataFrame) -> pl.DataFrame:
+    """Recompute t (first-reply time or censoring), d and n_replies of `par` from a filtered reply set
+    (e.g. without reply-backs or without the OP's replies)."""
+    first = rep.group_by("parent").agg(t_first=pl.col("delay").min(), n_new=pl.len())
+    return par.join(first, left_on="id", right_on="parent", how="left").with_columns(
+        d=pl.col("t_first").is_not_null(), n_replies=pl.col("n_new").fill_null(0),
+        t=pl.coalesce("t_first", "c")).drop("t_first", "n_new")
 
 
 def cap_fit(par: pl.DataFrame, cap: int | None = None) -> pl.DataFrame:

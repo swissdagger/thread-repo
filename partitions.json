@@ -225,5 +225,51 @@
   "mu_horizon": {
     "primary_s": 259200,
     "reported_s": 604800
+  },
+  "step5": {
+    "populations": {
+      "treatment": "hn ask_hn",
+      "control": "hn link"
+    },
+    "horizon_s": 259200,
+    "root_age_bins_s": [
+      0,
+      600,
+      1800,
+      3600,
+      7200,
+      14400,
+      28800,
+      57600,
+      115200,
+      259200
+    ],
+    "cap_roots": 150000,
+    "cap_method": "roots ordered by sha256('<seed>:4b:<thread_id>'), first cap_roots kept",
+    "events": "top-level comments: visible (not dead), not by the root author, not explicit-list bots",
+    "candidate_answer": "first such top-level comment (never defined by score)"
+  },
+  "step6": {
+    "horizon_s": 2592000,
+    "bin_edges": "0, then 40 log-spaced edges from 10 s to 30 d",
+    "min_parents_at_risk_per_bin": 100,
+    "tail_fit_range_s": [
+      259200,
+      2592000
+    ],
+    "kernel_fit_range_s": [
+      0,
+      259200
+    ],
+    "populations": [
+      "reddit philosophy",
+      "reddit buildapc",
+      "moltbook_crawl (to its observable horizon)",
+      "moltbook_archive (moltbook.archive_crosscheck window, observed to observation_end_utc)"
+    ],
+    "units": [
+      "nonroot",
+      "root_live"
+    ]
   }
 }
