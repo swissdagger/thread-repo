@@ -143,6 +143,6 @@ Simulation-derived curves are never used as inputs to the human fit.
 | --- | --- |
 | Weibull shape ≈ 1 humans, far below for agents | Failed: shapes similar; the difference is level (μ) |
 | Time decay flattens when position is added | Failed under (b) and (c); position modest and forum-dependent |
-| Ask HN root hazard drops after first answer | Untested (Step 5) |
-| Reddit flat late tail, Moltbook none | Untested (Step 6) |
+| Ask HN root hazard drops after first answer | Partly supported (exploratory): question threads are damped after early top-level comments (survives the synthetic placebo and the Show HN control), but not specifically at the first one. — Steps 5, 5b |
+| Reddit flat late tail, Moltbook none | Failed — Step 6 |
 | Root fan-out a separate process | Supported (μ₀/μ 1.2–52×) |
