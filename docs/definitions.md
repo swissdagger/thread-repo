@@ -152,3 +152,45 @@ Eziz 2026):
 
 **Rule from here on:** any speed number names its unit (root or comment), its reply filter, its source and
 its statistic. Speed numbers are calibration quantities and are never validation metrics.
+
+## Saturation (Step 5)
+
+- **Unit:** a live root (HN Ask or link post) in the calibration split, followed to H = 3 days.
+- **Events:** top-level comments on the root that are visible (not `dead`), not by the root's author and
+  not by an explicit-list bot.
+- **Candidate answer:** the first such top-level comment, at root age t_a. Never defined by score.
+- **Before / after:** root age [0, t_a] is "before" (it ends with the candidate answer, which is its event);
+  (t_a, H] is "after" (its events are the later top-level comments).
+- **Model:** cells (thread × root-age bin × state), y = events, offset = log exposure. Conditional Poisson
+  with thread fixed effects, root-age bin dummies (bins as in Step 4b.1), and an "after" indicator. β is
+  the log hazard ratio after vs before. Under a Poisson process with any thread-specific rate and no
+  dependence on the first comment, β = 0. Popularity feedback gives β > 0; saturation gives β lower for
+  questions than for the control.
+- **Saturation contrast:** β(Ask HN) − β(HN link).
+- **Weights:** raw, and per-author by the root's author (1/(that author's roots in the population)).
+  Per-author is the comparable version.
+- **Intervals:** 95% thread-bootstrap, B = 200. Ask HN and link are independent samples.
+
+## Late tail (Step 6)
+
+- **All-reply intensity at parent age t:** direct replies per parent per unit time, from the default event
+  definition (non-self, non-bot, visible). It is estimated per log-spaced age bin as weighted events /
+  weighted observed parent-time in the bin (censoring c as above). This is the piecewise-constant
+  Nelson–Aalen rate of the mean cumulative function.
+- **Horizon:** 30 days. A bin is reported only where the observed parent-time comes from ≥ 100 parents.
+- **Tail slope:** b in log λ(t) = a + b · log t, fitted by Poisson maximum likelihood on the bins with
+  midpoints in [3 d, 30 d].
+  - b = 0 is a flat tail (a constant external-arrival rate σ).
+  - b = −1 decays like 1/t.
+  - A log-normal kernel with the fitted parameters gives b well below −1 at these ages.
+- **Excess over the reference kernel:** fit a log-normal-shaped intensity μ·g(t) to the binned all-reply
+  data on [0, 3 d] by Poisson maximum likelihood, and extrapolate to 3–30 d. Excess = observed / predicted
+  replies in 3–30 d.
+- **Units:** comments (non-root) and roots, reported separately.
+- **Weights:** raw and per-author (w_pa); per-author is the comparable version.
+- **Intervals:** 95% thread-bootstrap, B = 200.
+- **Sources:**
+  - Reddit: r/philosophy and r/buildapc.
+  - Moltbook crawl: only to its observable horizon (≈ 7 days).
+  - Moltbook archive: the only Moltbook source followed to 30 days (posts 2026-02-08 to 02-14, observed to
+    2026-03-31).
