@@ -56,3 +56,27 @@ Intervals are 95% thread-clustered bootstrap intervals (`reports/audit.md`). Def
   2018–2020). 44% of top-level parents were removed.
 - **Proxy (d):** almost entirely r/buildapc daily "Simple Questions" and r/philosophy weekly "Open
   Discussion" threads. They are consistent in sort mode, but megathreads are not typical threads.
+
+## First model fit (docs/fit1_brief.md)
+
+Entries F1-* are the fit's pre-stated tests. Each is committed before the stage that runs it. Revisions of
+the model or estimator are logged as Rev-* with their reason.
+
+### Stage 1: estimator recovery (synthetic only). Committed before the recovery runs.
+
+| # | what | pre-stated rule | outcome |
+|---|---|---|---|
+| F1-S1 | Parameter recovery, per estimator arm (Rev-1) | For each population (r/philosophy, r/buildapc, Ask HN, HN link, Show HN, Moltbook) and for the joint HN root-stream fit: every true parameter inside its 95% one-step thread-bootstrap interval (B = 100) in ≥ 90% of the replicate datasets. RE arm: 20 replicates, so ≥ 18/20. FE arm: 5 replicates, so 5/5. Parameters: comment stream (k1, k2, a1, a2, depth 2, depth 3+, OP, log(1 + replies so far), early position, 23 hour effects), root stream (aR1, aR2, γ net), fitness (α_c, α_R, log r, b), reply-back (log ρ, log median, log σ, β root, β depth 3+). Joint HN fit: root clock and intercept per post type, γ, κ, hours, log r, b. Truth and settings: `partitions.json` → `fit1.stage1`, `outputs/fit1/stage1_truth.json`. | Pending |
+| F1-S2 | Clock shapes in the burst-heavy setting (Moltbook) | k1, k2, a1, a2 each covered in ≥ 18/20. **And** the true log-shapes of both clocks (relative to 1 h) lie inside the pointwise 95% band at ≥ 90% of 25 log-spaced ages (1 min–3 d) within the 5th–95th percentile of comment-stream event ages, in ≥ 18/20 datasets. **And** the band half-width at the median event age is < 0.5 in log rate (informative, not merely uncertain) in ≥ 18/20. RE arm. | Pending |
+| F1-S3 | Secondary reading of F1-S1 (multiplicity) | With ~50 parameters per fit and 7 fits, an estimator with exactly 95% coverage passes the literal rule with probability ≈ 0. A parameter in an exact-95% estimator reaches ≥ 18/20 with probability 0.925, so ~7% of checks fail by chance. A parameter is therefore flagged as a **genuine failure** if covered in ≤ 15/20 (probability ≤ 0.016 under exact coverage) or if \|mean bias\| > 0.5 × its mean bootstrap SD. Stage 2 proceeds only for parameters without genuine failures, or after a logged revision. | Pending |
+| F1-S4 | One-step bootstrap check | On Ask HN replicate 0 (RE arm), one-step and full-refit thread bootstrap (B = 100, same weights): 95% interval widths agree within ±25% for ≥ 90% of parameters. If not, Stage 2 uses the full-refit bootstrap. | Pending |
+| F1-S5 | B1 (single-clock) on the same data | Its comment-kernel estimates are reported against the true comment clock: the bias from omitting the thread clock. Not scored. | Pending |
+
+### Revisions before Stage 1 ran (development findings, on seeds outside the recovery datasets)
+
+| # | revision | reason |
+|---|---|---|
+| Rev-1 | **Two estimator arms.** FE: the brief's estimator, thread fixed effects for the comment and root streams, then fitness by maximum likelihood on thread totals. RE: the same model with the gamma fitness integrated out (marginal likelihood, Newton with the analytic Hessian). The RE arm runs on all 20 replicates, the FE arm on the first 5. | Fixed-effects Poisson is inconsistent for history-dependent covariates (top-level comments so far, replies so far) in short threads: the dynamic-panel bias of Blundell, Griffith & Windmeijer (2002). On an independently simulated Poisson root stream with no feedback, the FE estimator returns γ = −0.34; the generator gives the same −0.34, so it is not a generator error. With every covariate effect set to 0, FE returns depth −0.15/−0.20, OP +0.11, log(1 + replies) −0.16. The brief's model already specifies gamma fitness, so integrating it out is the consistent estimator of the same model. FE is kept on 5 replicates to document its bias at lower cost. |
+| Rev-2 | **Exact event rows.** Each event enters the likelihood as its own row, with covariates (ages, hour, replies so far, early position) at the exact event time. Exposure cells keep the brief's construction (clocks at the geometric midpoint, hour at the midpoint) and carry no events. | With events at the end of their cell, the cell-midpoint covariates sit systematically before the event (up to half a log bin), which biased the history covariates and the root clock. |
+| Rev-3 | **Redraw rule.** A replicate dataset in which any thread reaches the generator's 20,000-comment guard is redrawn with the next seed; redraws are counted and reported. | Human comment streams are near-critical (≈ 0.8 replies per comment); a high-fitness thread can explode within 3 days. Truncation at the guard is a generator artefact, not model behaviour. |
+| Rev-4 | **Truth fitness.** r = 12, b = 3–3.5 for humans; r = 4, b = 1.5 for Moltbook; popularity exponent 0.05 for humans. | A wider comment-stream fitness or a stronger popularity term makes high-fitness threads supercritical. b > 1 keeps root fan-out overdispersed. Real top-level overdispersion is larger than the truth reproduces: the truth is plausible, not matched. |

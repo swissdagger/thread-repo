@@ -353,5 +353,247 @@
       "intervals": "thread bootstrap B = 200 for shares and HHI"
     },
     "seed_offset": 62
+  },
+  "fit1": {
+    "brief": "docs/fit1_brief.md",
+    "horizon": "thread age [0, 3 d]; every comment is censored at its thread's 3-day mark (and at obs_end); root stream likewise",
+    "cap_comments": 100000,
+    "cap_method": "inner fit fold; whole threads in sha256('<seed>:fit1:<thread_id>') order until the number of comments created in the first 3 d of their thread would exceed cap_comments",
+    "bins": "comment age (comment stream) or thread age (root stream): [0, 10 s] plus 39 log-spaced bins from 10 s to 3 d (40 bins); cells further split at the unit's own reply events and, for comments, at thread age 30 min",
+    "covariates_in_cells": "clock terms at the cell's geometric-midpoint age; hour of day (UTC) at the cell's arithmetic midpoint",
+    "stage1": {
+      "seed_offset": 101,
+      "replicates": 20,
+      "B": 100,
+      "calibration_iterations": 5,
+      "bootstrap": "one-step (estimating-function) thread bootstrap, Hu & Kalbfleisch 2000: theta* = theta_hat + I^-1 sum_T (w_T - 1) s_T per stage; Stage B evaluated at each replicate's Stage A coefficients",
+      "truth_spec": {
+        "hn_shared": {
+          "gamma": 0.01,
+          "kappa": 0.03,
+          "hour_amp_peak": [
+            0.3,
+            16
+          ]
+        },
+        "philosophy": {
+          "k_median_sigma": [
+            60,
+            2.0
+          ],
+          "a_median_sigma": [
+            600,
+            1.5
+          ],
+          "aR_median_sigma": [
+            300,
+            2.0
+          ],
+          "hour_amp_peak": [
+            0.3,
+            17
+          ],
+          "beta": [
+            -0.12,
+            -0.05,
+            0.05,
+            0.05,
+            -0.15
+          ],
+          "gamma": 0.005,
+          "back_median_sigma": [
+            60,
+            1.5
+          ],
+          "beta_back": [
+            0.3,
+            0.2
+          ],
+          "r": 12.0,
+          "b": 3.5,
+          "pi_prev": 0.3
+        },
+        "buildapc": {
+          "k_median_sigma": [
+            20,
+            2.0
+          ],
+          "a_median_sigma": [
+            120,
+            1.5
+          ],
+          "aR_median_sigma": [
+            28,
+            2.0
+          ],
+          "hour_amp_peak": [
+            0.3,
+            18
+          ],
+          "beta": [
+            -0.29,
+            -0.15,
+            0.0,
+            0.05,
+            -0.11
+          ],
+          "gamma": 0.005,
+          "back_median_sigma": [
+            20,
+            1.5
+          ],
+          "beta_back": [
+            0.8,
+            0.2
+          ],
+          "r": 12.0,
+          "b": 3.0,
+          "pi_prev": 0.3
+        },
+        "ask_hn": {
+          "k_median_sigma": [
+            100,
+            2.0
+          ],
+          "a_median_sigma": [
+            300,
+            1.2
+          ],
+          "aR_median_sigma": [
+            60,
+            1.5
+          ],
+          "beta": [
+            0.02,
+            -0.1,
+            -0.36,
+            0.05,
+            -0.16
+          ],
+          "back_median_sigma": [
+            90,
+            1.5
+          ],
+          "beta_back": [
+            0.5,
+            0.2
+          ],
+          "r": 12.0,
+          "b": 3.5,
+          "pi_prev": 0.3
+        },
+        "link": {
+          "k_median_sigma": [
+            70,
+            2.0
+          ],
+          "a_median_sigma": [
+            360,
+            1.0
+          ],
+          "aR_median_sigma": [
+            80,
+            1.5
+          ],
+          "beta": [
+            -0.54,
+            -0.52,
+            -0.19,
+            0.05,
+            -0.23
+          ],
+          "back_median_sigma": [
+            90,
+            1.5
+          ],
+          "beta_back": [
+            -0.5,
+            0.2
+          ],
+          "r": 12.0,
+          "b": 3.5,
+          "pi_prev": 0.3
+        },
+        "show_hn": {
+          "k_median_sigma": [
+            85,
+            2.0
+          ],
+          "a_median_sigma": [
+            360,
+            1.2
+          ],
+          "aR_median_sigma": [
+            140,
+            1.5
+          ],
+          "beta": [
+            -0.58,
+            -0.5,
+            -0.26,
+            0.05,
+            0.1
+          ],
+          "back_median_sigma": [
+            90,
+            1.5
+          ],
+          "beta_back": [
+            1.0,
+            0.2
+          ],
+          "r": 12.0,
+          "b": 3.5,
+          "pi_prev": 0.3
+        },
+        "moltbook": {
+          "k_median_sigma": [
+            15,
+            2.4
+          ],
+          "a_median_sigma": [
+            30,
+            1.5
+          ],
+          "aR_median_sigma": [
+            1.5,
+            1.8
+          ],
+          "hour_amp_peak": [
+            0.1,
+            12
+          ],
+          "beta": [
+            -0.3,
+            -0.3,
+            -1.35,
+            0.0,
+            -0.2
+          ],
+          "gamma": -0.02,
+          "back_median_sigma": [
+            10,
+            2.0
+          ],
+          "beta_back": [
+            0.0,
+            0.0
+          ],
+          "r": 4.0,
+          "b": 1.5,
+          "pi_prev": 0.1
+        },
+        "notes": "beta order: dep2, dep3p, op, logn, pos. Medians in minutes. Values set near Step 3/4b/4c estimates and audit volumes; alpha_c, alpha_R and rho are calibrated so the generator matches each population's real capped volumes (outputs/fit1/stage1_real_targets.csv). HN post types share gamma, kappa (Ask only) and the hour profile, so the joint HN root-stream fit is well specified. Moltbook is the burst-heavy setting (top-level comments within minutes; thread age and comment age nearly collinear). Fitness: r = 12 (CV 0.29) with b = 3-3.5 on the root stream for humans, r = 4 with b = 1.5 for Moltbook; popularity exponent (logn) 0.05 for humans. Human comment streams are near-critical (comment stream + reply-backs = 0.6-0.85 per comment); a wider fitness or stronger popularity feedback makes high-fitness threads supercritical and explode within 3 days. b > 1 keeps root fan-out overdispersed (real top-level variance/mean 14-140; the truth gives less: plausible, not matched)."
+      },
+      "dataset_seed_offset": 102,
+      "fe_arm_replicates": 5,
+      "arms": {
+        "RE": "random effects: gamma fitness integrated out; all replicates",
+        "FE": "the brief's estimator (thread FE, then fitness on totals); replicates 0-4"
+      },
+      "redraw_rule": "a replicate dataset in which any thread reaches the generator's 20,000-comment guard is redrawn with attempt seed + 1; redraws reported",
+      "event_rows": "events enter as their own rows with covariates at the exact event time (log offset 1e-9); exposure cells carry no events",
+      "seeds": "calibration: [seed, seed_offset]; datasets: [seed, dataset_seed_offset, population index, replicate, attempt]; bootstrap weights drawn from the dataset's generator state after simulation; joint HN weights [seed, dataset_seed_offset, 99, rep]; bootstrap check [seed, dataset_seed_offset, 98]"
+    }
   }
 }

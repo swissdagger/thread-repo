@@ -1,0 +1,406 @@
+"""First model fit, Stage 1: generator and estimator recovery (synthetic only). docs/fit1_brief.md.
+
+Usage: python scripts/fit1_stage1.py roots | calibrate | recover [pop ...] | hn_joint | bootcheck | summary | smoke <pop>
+
+  roots      real root arrival times and post types of each population's capped inner fit fold
+             (partitions.json -> fit1.cap_comments), saved to outputs/fit1/stage1_roots_<pop>.parquet
+  calibrate  set alpha_c, alpha_R and rho so the generator matches each population's real volumes
+             (top-level comments per root, comment-stream replies and reply-backs per comment); the true
+             parameter set is written to outputs/fit1/stage1_truth.json (committed before recovery runs)
+  recover    20 replicate datasets per population: simulate, fit the full model and B1, B = 100 one-step
+             thread bootstrap; outputs/fit1/stage1_recovery_<pop>.parquet
+  hn_joint   joint HN root-stream fit (gamma shared, kappa on Ask HN) on the same replicate datasets
+  bootcheck  one-step vs full-refit thread bootstrap (Stage A) on one Ask HN replicate
+  summary    coverage table, pass rule, figures
+"""
+from __future__ import annotations
+
+import json
+import sys
+import time
+from pathlib import Path
+
+import numpy as np
+import polars as pl
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from forum_model import ROOT, load_partitions  # noqa: E402
+from forum_model import fit1_estimator as EST  # noqa: E402
+from forum_model.fit1_data import POPULATIONS, cap_threads, load_population  # noqa: E402
+from forum_model.fit1_generator import Generator, clock_integral, lognormal_coefs  # noqa: E402
+from forum_model.fit1_streams import extract, summary  # noqa: E402
+
+P = load_partitions()
+F1 = P["fit1"]
+S1 = F1["stage1"]
+SEED = P["seed"]
+OUT = ROOT / "outputs" / "fit1"
+FIG = ROOT / "figures" / "fit1"
+OUT.mkdir(parents=True, exist_ok=True)
+FIG.mkdir(parents=True, exist_ok=True)
+HN = ["ask_hn", "link", "show_hn"]
+
+
+def hour_profile(amp: float, peak: float) -> np.ndarray:
+    h = np.arange(24)
+    v = amp * np.cos(2 * np.pi * (h - peak) / 24.0)
+    return v - v[0]
+
+
+def gen_params(pop: str, alphas: dict) -> dict:
+    sp = S1["truth_spec"][pop]
+    hn = S1["truth_spec"]["hn_shared"]
+    gamma = hn["gamma"] if pop in HN else sp["gamma"]
+    kappa = hn["kappa"] if pop == "ask_hn" else 0.0
+    hour = hour_profile(*(hn["hour_amp_peak"] if pop in HN else sp["hour_amp_peak"]))
+    return {"alpha_c": alphas["alpha_c"], "alpha_R": alphas["alpha_R"], "r": sp["r"], "b": sp["b"],
+            "k": lognormal_coefs(*sp["k_median_sigma"]), "a": lognormal_coefs(*sp["a_median_sigma"]),
+            "aR": lognormal_coefs(*sp["aR_median_sigma"]), "hour": hour,
+            "beta": dict(zip(["dep2", "dep3p", "op", "logn", "pos"], sp["beta"])),
+            "gamma": gamma, "kappa": kappa, "rho": alphas["rho"], "back_median_min": sp["back_median_sigma"][0],
+            "back_sigma": sp["back_median_sigma"][1], "beta_back": tuple(sp["beta_back"]), "pi_prev": sp["pi_prev"]}
+
+
+def truth_vector(pop: str, gp: dict) -> dict:
+    """True values in the estimator's parameterisation."""
+    t = {"k1_log_u": gp["k"][0], "k2_log_u_sq": gp["k"][1], "a1_log_tau": gp["a"][0], "a2_log_tau_sq": gp["a"][1],
+         "dep2": gp["beta"]["dep2"], "dep3p": gp["beta"]["dep3p"], "op": gp["beta"]["op"], "logn": gp["beta"]["logn"],
+         "pos_early": gp["beta"]["pos"], "aR1": gp["aR"][0], "aR2": gp["aR"][1], "gamma": gp["gamma"] - gp["kappa"],
+         "alpha_c": gp["alpha_c"], "alpha_R": gp["alpha_R"], "log_r": np.log(gp["r"]), "b": gp["b"],
+         "log_rho": np.log(gp["rho"]), "back_m": np.log(gp["back_median_min"]), "log_back_sigma": np.log(gp["back_sigma"]),
+         "beta_back_root": gp["beta_back"][0], "beta_back_dep3p": gp["beta_back"][1]}
+    for h in range(1, 24):
+        t[f"hour_{h}"] = gp["hour"][h]
+    return {k: float(v) for k, v in t.items()}
+
+
+def roots_of(pop: str) -> pl.DataFrame:
+    return pl.read_parquet(OUT / f"stage1_roots_{pop}.parquet")
+
+
+# ------------------------------------------------------------------------------------------
+def run_roots():
+    from forum_model.units import load
+    hn = load("hn", None, ["body_status"])
+    rows = []
+    for pop in POPULATIONS:
+        it = load_population(pop, hn_items=hn if pop in HN else None)
+        capd = cap_threads(it.filter(pl.col("fold") == "fit"), int(F1["cap_comments"]))
+        S = extract(capd)
+        sm = summary(S)
+        r = capd.filter(pl.col("is_root")).select("thread_id", T0="created", post_type="post_type") \
+            .with_columns(question=pl.col("post_type") == "ask_hn")
+        r.write_parquet(OUT / f"stage1_roots_{pop}.parquet")
+        rows.append({"population": pop, **sm})
+        print(pop, sm, flush=True)
+    pl.DataFrame(rows).write_csv(OUT / "stage1_real_targets.csv")
+
+
+def run_calibrate():
+    targets = {r["population"]: r for r in pl.read_csv(OUT / "stage1_real_targets.csv").to_dicts()}
+    rng = np.random.default_rng(SEED + int(S1["seed_offset"]))
+    truth = {}
+    for pop in POPULATIONS:
+        sp = S1["truth_spec"][pop]
+        tg = targets[pop]
+        al = {"alpha_R": float(np.log(tg["top_level_per_root"] / clock_integral(*lognormal_coefs(*sp["aR_median_sigma"])))),
+              "alpha_c": float(np.log(tg["comment_stream_per_comment"] / two_clock_integral(sp))),
+              "rho": float(tg["reply_backs_per_comment"])}
+        roots = roots_of(pop)
+        for it in range(int(S1["calibration_iterations"])):
+            gp = gen_params(pop, al)
+            try:
+                items, diag = Generator(gp, max_total=1_500_000).simulate(roots, rng)
+            except RuntimeError as e:
+                print(f"  [calibrate] {pop} it {it}: {e}; lowering alpha_c by 1", flush=True)
+                al["alpha_c"] -= 1.0
+                continue
+            sm = summary(extract(items))
+            al["alpha_R"] += float(np.log(tg["top_level_per_root"] / max(sm["top_level_per_root"], 1e-9)))
+            al["alpha_c"] += float(np.log(tg["comment_stream_per_comment"] / max(sm["comment_stream_per_comment"], 1e-9)))
+            al["rho"] *= float(tg["reply_backs_per_comment"] / max(sm["reply_backs_per_comment"], 1e-9))
+            print(f"  [calibrate] {pop} it {it}: sim {sm['top_level_per_root']:.3f}/{sm['comment_stream_per_comment']:.3f}/"
+                  f"{sm['reply_backs_per_comment']:.3f} target {tg['top_level_per_root']:.3f}/"
+                  f"{tg['comment_stream_per_comment']:.3f}/{tg['reply_backs_per_comment']:.3f}; max thread {diag['max_thread_size']}",
+                  flush=True)
+        gp = gen_params(pop, al)
+        truth[pop] = {"alphas": al, "params": {k: (v.tolist() if isinstance(v, np.ndarray) else v) for k, v in gp.items()},
+                      "truth_vector": truth_vector(pop, gp)}
+    (OUT / "stage1_truth.json").write_text(json.dumps(truth, indent=1))
+
+
+def two_clock_integral(sp) -> float:
+    """Expected comment-stream integral of exp(k(u) + a(s + u)) over u in [0, 3 d - s], for a comment created at
+    the root clock's median age s (starting value for alpha_c only; calibration iterates from it)."""
+    k = lognormal_coefs(*sp["k_median_sigma"])
+    a = lognormal_coefs(*sp["a_median_sigma"])
+    s0 = sp["aR_median_sigma"][0] * 60.0
+    u = np.logspace(-1, np.log10(3 * 86400 - s0), 4000)
+    du = np.diff(np.r_[0.0, u])
+    xu, xt = np.log(u / 60.0), np.log((s0 + u) / 60.0)
+    return float(np.sum(np.exp(k[0] * xu + k[1] * xu ** 2 + a[0] * xt + a[1] * xt ** 2) * du))
+
+
+def load_truth():
+    return json.loads((OUT / "stage1_truth.json").read_text())
+
+
+def dataset(pop: str, rep: int):
+    T = load_truth()[pop]
+    gp = dict(T["params"])
+    gp["hour"] = np.array(gp["hour"])
+    gp["k"], gp["a"], gp["aR"] = tuple(gp["k"]), tuple(gp["a"]), tuple(gp["aR"])
+    # pre-registered: a dataset in which any thread reaches the generator's per-thread guard (or the global
+    # guard) is redrawn with the next attempt seed; redraws are counted and reported
+    for attempt in range(50):
+        rng = np.random.default_rng([SEED, int(S1["dataset_seed_offset"]), POPULATIONS.index(pop), rep, attempt])
+        try:
+            items, diag = Generator(gp).simulate(roots_of(pop), rng)
+        except RuntimeError:
+            continue
+        if diag["capped_events"] == 0 and diag["max_thread_size"] < 20000:
+            diag["redraws"] = attempt
+            return items, diag, T["truth_vector"], rng
+    raise RuntimeError(f"{pop} rep {rep}: no non-exploding dataset in 50 attempts")
+
+
+def rows_from_fit(pop, rep, R, truth, diag, secs):
+    """One row per (arm, parameter). Arms: RE (random effects), FE (the brief's estimator), B1; the reply-back
+    stream is estimated once and scored under both RE and FE."""
+    rows = []
+    blocks = []
+    if "RE" in R:
+        blocks.append(("RE", "joint", R["RE"]["names"], R["RE"]["coef"], R["RE"]["reps"], R["RE"]["se_sandwich"]))
+        blocks.append(("RE", "reply_back", R["reply_back"]["names"], R["reply_back"]["coef"], R["reply_back"]["reps"], None))
+    if "FE" in R:
+        blocks.append(("FE", "stageA", R["FE"]["names"], R["FE"]["coef"], R["FE"]["reps"], R["FE"]["se_sandwich"]))
+        blocks.append(("FE", "fitness", R["FE"]["fitness"]["names"], R["FE"]["fitness"]["coef"], R["FE"]["fitness"]["reps"], None))
+        blocks.append(("FE", "reply_back", R["reply_back"]["names"], R["reply_back"]["coef"], R["reply_back"]["reps"], None))
+    if "B1" in R:
+        blocks.append(("B1", "stageA", R["B1"]["names"], R["B1"]["coef"], R["B1"]["reps"], R["B1"]["se_sandwich"]))
+    for model, stage, names, coef, reps, se in blocks:
+        for j, nm in enumerate(names):
+            lo, hi = np.nanpercentile(reps[:, j], [2.5, 97.5])
+            tv = truth.get(nm)
+            rows.append({"population": pop, "rep": rep, "model": model, "stage": stage, "param": nm,
+                         "truth": tv, "estimate": float(coef[j]), "ci_lo": float(lo), "ci_hi": float(hi),
+                         "boot_sd": float(np.nanstd(reps[:, j])),
+                         "se_sandwich": float(se[j]) if se is not None else None,
+                         "covered": (bool(lo <= tv <= hi) if tv is not None else None),
+                         "max_thread_size": diag["max_thread_size"], "redraws": diag["redraws"],
+                         "re_iterations": R.get("RE", {}).get("n_iter"), "seconds": secs})
+    return rows
+
+
+def run_recover(pops):
+    n_rep, B = int(S1["replicates"]), int(S1["B"])
+    n_fe = int(S1["fe_arm_replicates"])
+    for pop in pops:
+        rows, curves = [], []
+        for rep in range(n_rep):
+            t0 = time.time()
+            items, diag, truth, rng = dataset(pop, rep)
+            S = extract(items)
+            R = EST.fit_all(S, B, rng, arms=("RE", "FE") if rep < n_fe else ("RE",), with_b1=True)
+            rows += rows_from_fit(pop, rep, R, truth, diag, time.time() - t0)
+            curves.append(clock_curves(R, truth, pop, rep, S))
+            cov = np.mean([r["covered"] for r in rows if r["rep"] == rep and r["model"] == "RE" and r["covered"] is not None])
+            print(f"  [recover] {pop} rep {rep}: {S['units'].height} comments, RE coverage {cov:.2f}, "
+                  f"iters {R['RE']['n_iter']}, redraws {diag['redraws']}, {time.time() - t0:.0f}s", flush=True)
+            pl.DataFrame(rows, infer_schema_length=None).write_parquet(OUT / f"stage1_recovery_{pop}.parquet")
+            pl.DataFrame([c for cc in curves for c in cc]).write_parquet(OUT / f"stage1_curves_{pop}.parquet")
+
+
+AGES = np.logspace(np.log10(60), np.log10(3 * 86400), 25)
+
+
+def clock_curves(R, truth, pop, rep, S):
+    """log-shape curves of the two clocks, relative to their value at 1 h, with pointwise bootstrap bands."""
+    out = []
+    names = R["RE"]["names"]
+    reps = R["RE"]["reps"]
+    coef = R["RE"]["coef"]
+    ev = S["events_c"].filter(pl.col("stream") == "comment").join(
+        S["units"].select(pl.col("id").alias("unit"), "s"), on="unit")
+    u_ev = ev["u"].to_numpy()
+    tau_ev = (ev["u"] + ev["s"]).to_numpy()
+    for clock, (i1, i2), evs in [("comment_clock_k", ("k1_log_u", "k2_log_u_sq"), u_ev),
+                                 ("thread_clock_a", ("a1_log_tau", "a2_log_tau_sq"), tau_ev)]:
+        j1, j2 = names.index(i1), names.index(i2)
+        x = np.log(AGES / 60.0)
+        x0 = np.log(60.0)  # reference: 1 hour
+        f = lambda c1, c2: c1 * (x - x0) + c2 * (x * x - x0 * x0)
+        true = f(truth[i1], truth[i2])
+        est = f(coef[j1], coef[j2])
+        band = np.array([f(r[j1], r[j2]) for r in reps])
+        lo, hi = np.nanpercentile(band, [2.5, 97.5], axis=0)
+        p5, p95 = (np.percentile(evs, [5, 95]) if len(evs) else (np.nan, np.nan))
+        med = np.median(evs) if len(evs) else np.nan
+        for k, a in enumerate(AGES):
+            out.append({"population": pop, "rep": rep, "clock": clock, "age_s": a, "true": true[k], "estimate": est[k],
+                        "lo": lo[k], "hi": hi[k], "in_event_range": bool(p5 <= a <= p95), "event_age_p5": p5,
+                        "event_age_p95": p95, "event_age_median": med})
+    return out
+
+
+def run_smoke(pop):
+    t0 = time.time()
+    items, diag, truth, rng = dataset(pop, 0)
+    print("simulated", items.height, diag["max_thread_size"], f"{time.time() - t0:.0f}s", flush=True)
+    S = extract(items)
+    print(summary(S), flush=True)
+    t1 = time.time()
+    R = EST.fit_all(S, 20, rng)
+    print("fit", f"{time.time() - t1:.0f}s", R["design"], flush=True)
+    rows = rows_from_fit(pop, 0, R, truth, diag, 0)
+    df = pl.DataFrame(rows, infer_schema_length=None).filter(pl.col("model") == "full")
+    pl.Config.set_tbl_rows(80)
+    print(df.select("param", pl.col("truth").round(3), pl.col("estimate").round(3), pl.col("ci_lo").round(3),
+                    pl.col("ci_hi").round(3), pl.col("boot_sd").round(3), pl.col("se_sandwich").round(3), "covered"))
+
+
+# ------------------------------------------------------------------------------------------
+def run_hn_joint():
+    """Joint HN root stream on the same replicate datasets (regenerated deterministically), random-effects
+    likelihood: root clock and intercept per post type, gamma shared, kappa on Ask HN, hours shared, fitness
+    (r, b) shared."""
+    n_rep, B = int(S1["replicates"]), int(S1["B"])
+    truth = load_truth()
+    tv = {"gamma": S1["truth_spec"]["hn_shared"]["gamma"], "minus_kappa": -S1["truth_spec"]["hn_shared"]["kappa"]}
+    for pop in HN:
+        tv[f"aR1_{pop}"] = truth[pop]["truth_vector"]["aR1"]
+        tv[f"aR2_{pop}"] = truth[pop]["truth_vector"]["aR2"]
+        tv[f"alpha_R_{pop}"] = truth[pop]["truth_vector"]["alpha_R"]
+    tv["log_r"] = truth["ask_hn"]["truth_vector"]["log_r"]
+    tv["b"] = truth["ask_hn"]["truth_vector"]["b"]
+    for h in range(1, 24):
+        tv[f"hour_{h}"] = truth["ask_hn"]["truth_vector"][f"hour_{h}"]
+    rows = []
+    for rep in range(n_rep):
+        t0 = time.time()
+        parts = []
+        for pop in HN:
+            items, diag, _, _ = dataset(pop, rep)
+            parts.append(items.filter(pl.col("is_root") | (pl.col("depth") == 1)).with_columns(
+                id=pl.when(pl.col("is_root")).then(pl.col("id")).otherwise(pl.lit(pop + ":") + pl.col("id"))))
+        S = extract(pl.concat(parts))
+        D = EST.root_only_design(S, HN)
+        M = EST.REModel(D)
+        st = np.zeros(M.p + 2)
+        st[M.p], st[M.p + 1] = np.log(5.0), 1.0
+        th = M.fit(st, iters=60)
+        I = M.info(th)
+        sc = M.scores(th)
+        rng = np.random.default_rng([SEED, int(S1["dataset_seed_offset"]), 99, rep])
+        W = rng.multinomial(D["nT"], np.full(D["nT"], 1.0 / D["nT"]), size=B).astype(float)
+        reps = th[None, :] + ((W - 1.0) @ sc) @ np.linalg.inv(I).T
+        names = M.names + ["log_r", "b"]
+        for j, nm in enumerate(names):
+            lo, hi = np.nanpercentile(reps[:, j], [2.5, 97.5])
+            t = tv.get(nm)
+            rows.append({"population": "hn_joint", "rep": rep, "model": "RE", "stage": "joint_root", "param": nm,
+                         "truth": t, "estimate": float(th[j]), "ci_lo": float(lo), "ci_hi": float(hi),
+                         "boot_sd": float(np.nanstd(reps[:, j])), "covered": bool(lo <= t <= hi) if t is not None else None,
+                         "re_iterations": M.n_iter, "seconds": time.time() - t0})
+        k = names.index("minus_kappa")
+        print(f"  [hn_joint] rep {rep}: kappa {-th[k]:.4f} (truth {-tv['minus_kappa']}), gamma {th[names.index('gamma')]:.4f}, "
+              f"iters {M.n_iter}, {time.time() - t0:.0f}s", flush=True)
+        pl.DataFrame(rows, infer_schema_length=None).write_parquet(OUT / "stage1_recovery_hn_joint.parquet")
+
+
+def run_bootcheck():
+    """Pre-registered check: one-step vs full-refit thread bootstrap for the RE arm, Ask HN rep 0, B = 100."""
+    B = int(S1["B"])
+    items, diag, truth, rng = dataset("ask_hn", 0)
+    S = extract(items)
+    D = EST.build(S)
+    M = EST.REModel(D)
+    st = np.zeros(M.p + 2)
+    st[M.p - 2] = np.log(max(D["yc"].sum(), 1) / np.exp(D["oc"][D["yc"] == 0]).sum())
+    st[M.p - 1] = np.log(max(D["yr"].sum(), 1) / np.exp(D["or"][D["yr"] == 0]).sum())
+    st[M.p], st[M.p + 1] = np.log(5.0), 1.0
+    th = M.fit(st, iters=60)
+    W = np.random.default_rng([SEED, int(S1["dataset_seed_offset"]), 98]).multinomial(
+        D["nT"], np.full(D["nT"], 1.0 / D["nT"]), size=B).astype(float)
+    one = th[None, :] + ((W - 1.0) @ M.scores(th)) @ np.linalg.inv(M.info(th)).T
+    full = np.full_like(one, np.nan)
+    t0 = time.time()
+    for b in range(B):
+        full[b] = M.fit_weighted(th, W[b])
+        if b % 10 == 0:
+            print(f"  [bootcheck] {b}/{B} {time.time() - t0:.0f}s", flush=True)
+    names = M.names + ["log_r", "b"]
+    rows = []
+    for j, nm in enumerate(names):
+        lo1, hi1 = np.nanpercentile(one[:, j], [2.5, 97.5])
+        lo2, hi2 = np.nanpercentile(full[:, j], [2.5, 97.5])
+        rows.append({"param": nm, "estimate": float(th[j]), "onestep_lo": lo1, "onestep_hi": hi1,
+                     "refit_lo": lo2, "refit_hi": hi2, "width_ratio": (hi1 - lo1) / (hi2 - lo2),
+                     "centre_shift_in_refit_widths": ((lo1 + hi1) / 2 - (lo2 + hi2) / 2) / (hi2 - lo2)})
+    df = pl.DataFrame(rows)
+    df.write_csv(OUT / "stage1_bootcheck.csv")
+    ok = float(((df["width_ratio"] - 1).abs() <= 0.25).mean())
+    print(df, f"share within +-25%: {ok:.2f}", flush=True)
+
+
+# ------------------------------------------------------------------------------------------
+def run_summary():
+    frames = [pl.read_parquet(f) for f in sorted(OUT.glob("stage1_recovery_*.parquet"))]
+    d = pl.concat(frames, how="diagonal_relaxed")
+    full = d.filter(pl.col("model").is_in(["full", "joint_root"]) & pl.col("truth").is_not_null())
+    cov = full.group_by("population", "stage", "param").agg(
+        n_rep=pl.len(), covered=pl.col("covered").sum(), truth=pl.col("truth").first(),
+        mean_est=pl.col("estimate").mean(), mean_boot_sd=pl.col("boot_sd").mean(),
+        sd_est=pl.col("estimate").std()).with_columns(
+        bias=pl.col("mean_est") - pl.col("truth"),
+        bias_in_sd=(pl.col("mean_est") - pl.col("truth")) / pl.col("mean_boot_sd"),
+        sd_ratio=pl.col("mean_boot_sd") / pl.col("sd_est"),
+        pass_literal=pl.col("covered") >= 18,
+        genuine_fail=(pl.col("covered") <= 15) | (((pl.col("mean_est") - pl.col("truth")) / pl.col("mean_boot_sd")).abs() > 0.5)
+    ).sort("population", "stage", "param")
+    cov.write_csv(OUT / "stage1_coverage.csv")
+    b1 = d.filter((pl.col("model") == "B1")).join(
+        d.filter(pl.col("model") == "full").select("population", "rep", "param", pl.col("truth").alias("t_full")),
+        on=["population", "rep", "param"], how="left").group_by("population", "param").agg(
+        truth=pl.col("t_full").first(), mean_est=pl.col("estimate").mean(), covered=pl.col("covered").sum())
+    b1.write_csv(OUT / "stage1_B1_kernel.csv")
+    # clock-shape check in the burst-heavy setting
+    curv = []
+    for f in sorted(OUT.glob("stage1_curves_*.parquet")):
+        c = pl.read_parquet(f)
+        g = c.filter(pl.col("in_event_range")).group_by("population", "clock", "rep").agg(
+            frac_in_band=((pl.col("true") >= pl.col("lo")) & (pl.col("true") <= pl.col("hi"))).mean())
+        mid = c.with_columns(dist=(pl.col("age_s").log() - pl.col("event_age_median").log()).abs()).sort("dist") \
+            .group_by("population", "clock", "rep").agg(halfwidth_at_median=((pl.col("hi") - pl.col("lo")) / 2).first())
+        curv.append(g.join(mid, on=["population", "clock", "rep"]))
+    cv = pl.concat(curv)
+    cs = cv.group_by("population", "clock").agg(
+        reps_band_ok=(pl.col("frac_in_band") >= 0.9).sum(), reps_informative=(pl.col("halfwidth_at_median") < 0.5).sum(),
+        median_halfwidth=pl.col("halfwidth_at_median").median(), n=pl.len()).sort("population", "clock")
+    cs.write_csv(OUT / "stage1_clock_shapes.csv")
+    pl.Config.set_tbl_rows(400)
+    pl.Config.set_tbl_width_chars(220)
+    print(cov.filter(~pl.col("pass_literal") | pl.col("genuine_fail")).select(
+        "population", "param", "truth", "mean_est", "covered", "bias_in_sd", "sd_ratio"))
+    print(cov.group_by("population").agg(params=pl.len(), literal_pass=pl.col("pass_literal").sum(),
+                                         genuine_fail=pl.col("genuine_fail").sum()).sort("population"))
+    print(cs)
+    print(b1.sort("population", "param"))
+
+
+if __name__ == "__main__":
+    cmd = sys.argv[1]
+    if cmd == "roots":
+        run_roots()
+    elif cmd == "calibrate":
+        run_calibrate()
+    elif cmd == "recover":
+        run_recover(sys.argv[2:] or POPULATIONS)
+    elif cmd == "smoke":
+        run_smoke(sys.argv[2])
+    elif cmd == "hn_joint":
+        run_hn_joint()
+    elif cmd == "bootcheck":
+        run_bootcheck()
+    elif cmd == "summary":
+        run_summary()
