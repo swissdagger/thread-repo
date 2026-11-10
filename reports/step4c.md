@@ -76,8 +76,10 @@ Raw-weighted results are similar (`outputs/combined/step4c_showhn_op.csv`).
 **Against the pre-stated rule (R21)** — not passed. The excluded-β CI includes 0, but the difference CI
 also includes 0. Removing the OP halves the point estimate, but with 230 events the data cannot
 distinguish "OP sequencing explains it" from "it persists". **The pre-stated validation test is
-underpowered:** the validation split holds about a quarter as many threads. One option is to pool Show HN
-with Ask HN, where OPs also answer, to gain power. That would be a new test, registered before it is run.
+underpowered:** the validation split holds about a quarter as many threads.
+
+**Decision on confirmation:** R21 is marked underpowered and parked. e_thread is not estimated for Show HN,
+and Show HN is not pooled with Ask HN.
 
 ## 4c.3 r/Fantasy contest threads vs matched non-contest threads
 
@@ -121,4 +123,4 @@ consistent with 4b.1, where adding early display position moved the age coeffici
 3. **Display order does not produce the age effect** (4b.1 position control; 4c.3 contest vs matched
    control). This is consistent with H1's human-side evidence that position does not absorb time decay.
 4. **Show HN's positive position effect stays unexplained.** It is consistent with OP sequencing, but not
-   established. e_thread for Show HN should not be read from proxy (b) until this is resolved.
+   established. R21 is parked (decision on confirmation): e_thread is not estimated for Show HN.

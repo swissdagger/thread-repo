@@ -194,3 +194,22 @@ its statistic. Speed numbers are calibration quantities and are never validation
   - Moltbook crawl: only to its observable horizon (≈ 7 days).
   - Moltbook archive: the only Moltbook source followed to 30 days (posts 2026-02-08 to 02-14, observed to
     2026-03-31).
+
+## Saturation identification (Step 5b)
+
+- **Dose-response:** the Saturation model with the "after" indicator replaced by step indicators at the
+  1st, 2nd and 3rd top-level comments. Each event belongs to the state it ends. step_k is the log hazard
+  change at the k-th comment, relative to the state before it.
+- **Synthetic placebo:** simulated threads with thread-specific random multiplicative exposure spikes, no
+  saturation and no popularity feedback. Comment volumes are matched to each population. The Step 5
+  estimator is run unchanged. Parameters are in `partitions.json` → `step5b.placebo`. The placebo
+  "interval" is the 2.5–97.5 percentile range over 20 independent simulations per setting; it is a
+  simulation range, not a bootstrap interval.
+
+## Sweeper bump and late-reply authorship (Step 6b)
+
+- **Bump ratio R:** observed replies in the bins with midpoints in [1 d, 2 d], divided by the replies
+  expected there from a Poisson log-log linear fit to the neighbouring bins ([0.25 d, 0.9 d] and
+  [2.2 d, 6 d]).
+- **Author concentration:** among replies in a delay window, the shares written by the top 1, 5 and 10
+  authors, the Herfindahl index Σ share², and the number of distinct authors.

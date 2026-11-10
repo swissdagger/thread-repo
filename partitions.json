@@ -271,5 +271,80 @@
       "nonroot",
       "root_live"
     ]
+  },
+  "step5b": {
+    "dose_response": {
+      "populations": [
+        "hn ask_hn",
+        "hn link",
+        "hn show_hn"
+      ],
+      "states": "number of earlier top-level comments: 0, 1, 2, >=3; each event belongs to the state it ends",
+      "covariates": "step_1 = 1[>=1 earlier], step_2 = 1[>=2], step_3 = 1[>=3]; thread FE; root-age bins as step5",
+      "horizon_s": 259200,
+      "cap_roots": 150000
+    },
+    "show_hn_control": {
+      "population": "hn show_hn, all calibration live roots",
+      "model": "step5 unchanged"
+    },
+    "placebo": {
+      "threads": {
+        "ask_hn": 30422,
+        "link": 150000
+      },
+      "horizon_s": 259200,
+      "base_shape": "log-normal density in root age, median 7200 s, sigma 1.5 (log seconds)",
+      "rate": "lambda_g(t) = A_P * a_g * base(t) * [1 + (M - 1) * 1(spike_g and T_g <= t < T_g + D)]",
+      "heterogeneity": "a_g ~ Gamma(k_P, scale 1/k_P)",
+      "spike": {
+        "probability_pi": [
+          0.25,
+          1.0
+        ],
+        "multiplier_M": [
+          3,
+          10,
+          30
+        ],
+        "start_T": "log-uniform on [300 s, 43200 s]",
+        "duration_D_s": 7200
+      },
+      "matching": "for each (pi, M) and population P, (A_P, k_P) chosen so that the simulated mean top-level comments per root within 3 d and the share of roots with >= 1 match the Step 5 calibration values (ask_hn 6.424, 0.736; link 1.755, 0.236)",
+      "simulations_per_setting": 20,
+      "estimator": "scripts/step5_saturation.py cells + FEPoissonBoot, raw weights, unchanged",
+      "no_saturation": true,
+      "no_popularity_feedback": true
+    },
+    "seed_offset": 52,
+    "B": 200
+  },
+  "step6b": {
+    "sweepers": {
+      "source": "audit check 7 (outputs/audit/check07_first_repliers.csv)",
+      "author_names": [
+        "Stromfee",
+        "FinallyOffline"
+      ],
+      "population": "moltbook_crawl complete, non-spam, outage handled (step6 default), roots",
+      "bump_statistic": "R = observed events in bins with midpoints in [1 d, 2 d] / expected from a Poisson log-log linear fit on bins with midpoints in [0.25 d, 0.9 d] and [2.2 d, 6 d]; per-author primary, raw also; thread bootstrap B = 200",
+      "bump_present": "R > 1 with 95% CI excluding 1",
+      "disappears": "bump present with the sweepers' replies and, without them, R's 95% CI includes 1 or lies below 1"
+    },
+    "archive_late_authors": {
+      "population": "moltbook_archive cross-check window, roots and comments, default events",
+      "late": "reply delay > 3 d (the step6 tail window, up to 30 d)",
+      "early_comparison": "reply delay <= 3 d",
+      "statistics": [
+        "distinct authors",
+        "top-1, top-5, top-10 author shares",
+        "Herfindahl index",
+        "top-10 author names with counts",
+        "authors of replies in spike bins: 3-30 d bins whose events exceed 2x the fitted 3-30 d power law"
+      ],
+      "concentrated": "top-5 share of late replies > 0.5",
+      "intervals": "thread bootstrap B = 200 for shares and HHI"
+    },
+    "seed_offset": 62
   }
 }
