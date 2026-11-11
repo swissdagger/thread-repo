@@ -196,8 +196,18 @@ def run_recover(pops):
     n_rep, B = int(S1["replicates"]), int(S1["B"])
     n_fe = int(S1["fe_arm_replicates"])
     for pop in pops:
-        rows, curves = [], []
+        rows, curves, done = [], [], set()
+        fr, fc = OUT / f"stage1_recovery_{pop}.parquet", OUT / f"stage1_curves_{pop}.parquet"
+        if fr.exists() and fc.exists():  # resume (deterministic seeds: identical to an uninterrupted run)
+            rows = pl.read_parquet(fr).to_dicts()
+            cprev = pl.read_parquet(fc).to_dicts()
+            done = {r["rep"] for r in rows} & {c["rep"] for c in cprev}
+            rows = [r for r in rows if r["rep"] in done]
+            curves = [[c for c in cprev if c["rep"] in done]]
+            print(f"  [recover] {pop}: resuming, replicates already done {sorted(done)}", flush=True)
         for rep in range(n_rep):
+            if rep in done:
+                continue
             t0 = time.time()
             items, diag, truth, rng = dataset(pop, rep)
             S = extract(items)
@@ -275,8 +285,15 @@ def run_hn_joint():
     tv["b"] = truth["ask_hn"]["truth_vector"]["b"]
     for h in range(1, 24):
         tv[f"hour_{h}"] = truth["ask_hn"]["truth_vector"][f"hour_{h}"]
-    rows = []
+    rows, done = [], set()
+    fj = OUT / "stage1_recovery_hn_joint.parquet"
+    if fj.exists():  # resume (deterministic seeds)
+        rows = pl.read_parquet(fj).to_dicts()
+        done = {r["rep"] for r in rows}
+        print(f"  [hn_joint] resuming, replicates already done {sorted(done)}", flush=True)
     for rep in range(n_rep):
+        if rep in done:
+            continue
         t0 = time.time()
         parts = []
         for pop in HN:
@@ -347,24 +364,25 @@ def run_bootcheck():
 def run_summary():
     frames = [pl.read_parquet(f) for f in sorted(OUT.glob("stage1_recovery_*.parquet"))]
     d = pl.concat(frames, how="diagonal_relaxed")
-    full = d.filter(pl.col("model").is_in(["full", "joint_root"]) & pl.col("truth").is_not_null())
-    cov = full.group_by("population", "stage", "param").agg(
+    scored = d.filter(pl.col("model").is_in(["RE", "FE"]) & pl.col("truth").is_not_null())
+    cov = scored.group_by("population", "model", "stage", "param").agg(
         n_rep=pl.len(), covered=pl.col("covered").sum(), truth=pl.col("truth").first(),
         mean_est=pl.col("estimate").mean(), mean_boot_sd=pl.col("boot_sd").mean(),
         sd_est=pl.col("estimate").std()).with_columns(
         bias=pl.col("mean_est") - pl.col("truth"),
         bias_in_sd=(pl.col("mean_est") - pl.col("truth")) / pl.col("mean_boot_sd"),
         sd_ratio=pl.col("mean_boot_sd") / pl.col("sd_est"),
-        pass_literal=pl.col("covered") >= 18,
-        genuine_fail=(pl.col("covered") <= 15) | (((pl.col("mean_est") - pl.col("truth")) / pl.col("mean_boot_sd")).abs() > 0.5)
-    ).sort("population", "stage", "param")
+        pass_literal=pl.col("covered") >= (0.9 * pl.col("n_rep")).ceil(),
+    ).with_columns(
+        genuine_fail=(pl.col("covered") <= (0.75 * pl.col("n_rep")).floor()) | (pl.col("bias_in_sd").abs() > 0.5)
+    ).sort("population", "model", "stage", "param")
     cov.write_csv(OUT / "stage1_coverage.csv")
-    b1 = d.filter((pl.col("model") == "B1")).join(
-        d.filter(pl.col("model") == "full").select("population", "rep", "param", pl.col("truth").alias("t_full")),
+    b1 = d.filter(pl.col("model") == "B1").join(
+        d.filter(pl.col("model") == "RE").select("population", "rep", "param", pl.col("truth").alias("t_true")),
         on=["population", "rep", "param"], how="left").group_by("population", "param").agg(
-        truth=pl.col("t_full").first(), mean_est=pl.col("estimate").mean(), covered=pl.col("covered").sum())
+        truth=pl.col("t_true").first(), mean_est=pl.col("estimate").mean(), mean_boot_sd=pl.col("boot_sd").mean(),
+        covered=(pl.col("ci_lo") <= pl.col("t_true")).and_(pl.col("ci_hi") >= pl.col("t_true")).sum(), n=pl.len())
     b1.write_csv(OUT / "stage1_B1_kernel.csv")
-    # clock-shape check in the burst-heavy setting
     curv = []
     for f in sorted(OUT.glob("stage1_curves_*.parquet")):
         c = pl.read_parquet(f)
@@ -378,14 +396,90 @@ def run_summary():
         reps_band_ok=(pl.col("frac_in_band") >= 0.9).sum(), reps_informative=(pl.col("halfwidth_at_median") < 0.5).sum(),
         median_halfwidth=pl.col("halfwidth_at_median").median(), n=pl.len()).sort("population", "clock")
     cs.write_csv(OUT / "stage1_clock_shapes.csv")
+    meta = d.group_by("population").agg(redraws=pl.col("redraws").max(), max_thread=pl.col("max_thread_size").max(),
+                                         mean_seconds=pl.col("seconds").mean(), re_iter_max=pl.col("re_iterations").max())
+    meta.write_csv(OUT / "stage1_run_meta.csv")
     pl.Config.set_tbl_rows(400)
     pl.Config.set_tbl_width_chars(220)
     print(cov.filter(~pl.col("pass_literal") | pl.col("genuine_fail")).select(
-        "population", "param", "truth", "mean_est", "covered", "bias_in_sd", "sd_ratio"))
-    print(cov.group_by("population").agg(params=pl.len(), literal_pass=pl.col("pass_literal").sum(),
-                                         genuine_fail=pl.col("genuine_fail").sum()).sort("population"))
+        "population", "model", "param", pl.col("truth").round(3), pl.col("mean_est").round(3), "covered", "n_rep",
+        pl.col("bias_in_sd").round(2), pl.col("sd_ratio").round(2), "genuine_fail"))
+    print(cov.group_by("population", "model").agg(params=pl.len(), literal_pass=pl.col("pass_literal").sum(),
+                                                  genuine_fail=pl.col("genuine_fail").sum()).sort("population", "model"))
     print(cs)
     print(b1.sort("population", "param"))
+    print(meta)
+    figures(cov.filter(pl.col("model") == "RE"))
+
+
+def figures(cov: pl.DataFrame):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    INK, INK2, GRID, SURF = "#0b0b0b", "#52514e", "#e4e3df", "#fcfcfb"
+    # 1. coverage per parameter (RE arm), hours pooled into one row (min and mean)
+    pops = POPULATIONS + ["hn_joint"]
+    re = cov
+    params = [p_ for p_ in dict.fromkeys(re.filter(~pl.col("param").str.starts_with("hour"))["param"].to_list())]
+    fig, ax = plt.subplots(figsize=(11, 0.28 * len(params) + 1.6), dpi=150)
+    fig.patch.set_facecolor(SURF)
+    ax.set_facecolor(SURF)
+    for i, pop in enumerate(pops):
+        x = re.filter(pl.col("population") == pop)
+        for j, prm in enumerate(params + ["hours (min of 23)"]):
+            if prm.startswith("hours"):
+                h = x.filter(pl.col("param").str.starts_with("hour"))
+                v = h["covered"].min() if h.height else None
+                n = h["n_rep"].max() if h.height else None
+            else:
+                r = x.filter(pl.col("param") == prm)
+                v = r["covered"][0] if r.height else None
+                n = r["n_rep"][0] if r.height else None
+            if v is None:
+                continue
+            col = "#1baf7a" if v >= 0.9 * n else ("#eda100" if v > 0.75 * n else "#e34948")
+            ax.scatter(i, j, s=60, color=col, zorder=3)
+            ax.text(i + 0.18, j, f"{v}", va="center", fontsize=7, color=INK2)
+    ax.set_yticks(range(len(params) + 1))
+    ax.set_yticklabels(params + ["hours (min of 23)"], fontsize=8, color=INK2)
+    ax.set_xticks(range(len(pops)))
+    ax.set_xticklabels(pops, fontsize=8, color=INK2)
+    ax.invert_yaxis()
+    ax.set_xlim(-0.5, len(pops) - 0.2)
+    ax.set_title("Stage 1, RE arm: replicates (of 20) whose 95% interval covers the truth", color=INK, fontsize=10, loc="left")
+    ax.text(0.0, -0.06, "green >= 18 (pass)   amber 16-17   red <= 15 (genuine failure, F1-S3)", transform=ax.transAxes,
+            fontsize=8, color=INK2)
+    for sp in ["top", "right"]:
+        ax.spines[sp].set_visible(False)
+    ax.grid(True, color=GRID, lw=0.5)
+    fig.tight_layout()
+    fig.savefig(FIG / "stage1_coverage.png", facecolor=SURF)
+    # 2. Moltbook clock shapes: truth vs estimates (all replicates)
+    c = pl.read_parquet(OUT / "stage1_curves_moltbook.parquet")
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4.2), dpi=150)
+    fig.patch.set_facecolor(SURF)
+    for ax, (clock, ttl) in zip(axes, [("comment_clock_k", "comment clock k(u)"), ("thread_clock_a", "thread clock a(tau)")]):
+        ax.set_facecolor(SURF)
+        x = c.filter(pl.col("clock") == clock)
+        for rep in x["rep"].unique().to_list():
+            r = x.filter(pl.col("rep") == rep).sort("age_s")
+            ax.plot(r["age_s"].to_numpy() / 60, r["estimate"].to_numpy(), color="#2a78d6", lw=0.8, alpha=0.35)
+        r0 = x.filter(pl.col("rep") == x["rep"].min()).sort("age_s")
+        ax.plot(r0["age_s"].to_numpy() / 60, r0["true"].to_numpy(), color=INK, lw=2, label="truth")
+        ax.plot([], [], color="#2a78d6", lw=1, label="estimate, each replicate")
+        p5, p95 = x["event_age_p5"].median(), x["event_age_p95"].median()
+        ax.axvspan(p5 / 60, p95 / 60, color=GRID, alpha=0.5, lw=0)
+        ax.set_xscale("log")
+        ax.set_title(f"Moltbook (burst-heavy): {ttl}, log shape vs 1 h", color=INK, fontsize=10, loc="left")
+        ax.set_xlabel("age (minutes); shaded = 5th-95th percentile of event ages", color=INK2, fontsize=9)
+        ax.grid(True, color=GRID, lw=0.6)
+        ax.tick_params(colors=INK2, labelsize=8)
+        for sp in ["top", "right"]:
+            ax.spines[sp].set_visible(False)
+        ax.legend(frameon=False, fontsize=8, labelcolor=INK2)
+    axes[0].set_ylabel("log rate relative to age 1 h", color=INK2, fontsize=9)
+    fig.tight_layout()
+    fig.savefig(FIG / "stage1_moltbook_clocks.png", facecolor=SURF)
 
 
 if __name__ == "__main__":
