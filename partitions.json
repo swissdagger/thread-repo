@@ -594,6 +594,26 @@
       "redraw_rule": "a replicate dataset in which any thread reaches the generator's 20,000-comment guard is redrawn with attempt seed + 1; redraws reported",
       "event_rows": "events enter as their own rows with covariates at the exact event time (log offset 1e-9); exposure cells carry no events",
       "seeds": "calibration: [seed, seed_offset]; datasets: [seed, dataset_seed_offset, population index, replicate, attempt]; bootstrap weights drawn from the dataset's generator state after simulation; joint HN weights [seed, dataset_seed_offset, 99, rep]; bootstrap check [seed, dataset_seed_offset, 98]"
+    },
+    "stage1b": {
+      "estimator": "forum_model/fit1_estimator2.py (Rev-1, Rev-5, Rev-7; Rev-8 Moltbook test)",
+      "multistart": {
+        "b_grid": [
+          0.5,
+          1.0,
+          2.0,
+          3.5,
+          5.0
+        ],
+        "profile_newton_iterations": 8,
+        "final_cap_iterations": 100,
+        "convergence": "largest step < 1e-7 before the cap"
+      },
+      "rev8_edges": "[0, 1 s], log-spaced 1-10 s (4 bins), then the standard 39 log bins 10 s - 3 d",
+      "rev8_keep_rule": "fewer root-stream genuine failures (aR1, aR2, gamma, alpha_R, b, log_r) and no more total genuine failures on Moltbook",
+      "F1_S2b": "combined clock k(u)+a(s_bar+u) relative to 1 h inside the band at >= 90% of event-range ages in >= 18/20",
+      "outputs": "outputs/fit1/stage1b_*",
+      "datasets": "identical to stage 1 (same truth, seeds)"
     }
   }
 }

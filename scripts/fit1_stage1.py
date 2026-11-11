@@ -482,6 +482,169 @@ def figures(cov: pl.DataFrame):
     fig.savefig(FIG / "stage1_moltbook_clocks.png", facecolor=SURF)
 
 
+# ------------------------------------------------------------------------------------------
+# Stage 1 rerun (after review): estimator v2 (Rev-1, 5, 7; Rev-8 tested on Moltbook), outputs stage1b_*
+# ------------------------------------------------------------------------------------------
+from forum_model import fit1_estimator2 as EST2  # noqa: E402
+
+
+def rows_from_fit2(pop, rep, R, truth, diag, secs, variant):
+    rows = []
+    conv = R["RE"]
+    blocks = [("RE", "joint", R["RE"]["names"], R["RE"]["coef"], R["RE"]["reps"], R["RE"]["se_sandwich"]),
+              ("RE", "reply_back", R["reply_back"]["names"], R["reply_back"]["coef"], R["reply_back"]["reps"], None),
+              ("B1", "stageA", R["B1"]["names"], R["B1"]["coef"], R["B1"]["reps"], R["B1"]["se_sandwich"])]
+    for model, stage, names, coef, reps, se in blocks:
+        for j, nm in enumerate(names):
+            lo, hi = np.nanpercentile(reps[:, j], [2.5, 97.5])
+            tv = truth.get(nm)
+            rows.append({"population": pop, "variant": variant, "rep": rep, "model": model, "stage": stage, "param": nm,
+                         "truth": tv, "estimate": float(coef[j]), "ci_lo": float(lo), "ci_hi": float(hi),
+                         "boot_sd": float(np.nanstd(reps[:, j])), "se_sandwich": float(se[j]) if se is not None else None,
+                         "covered": (bool(lo <= tv <= hi) if tv is not None else None),
+                         "max_thread_size": diag["max_thread_size"], "redraws": diag["redraws"],
+                         "re_iterations": conv["n_iter"], "re_converged": conv["converged"], "start_b": conv["start_b"],
+                         "seconds": secs})
+    return rows
+
+
+def clock_curves2(R, truth, pop, rep, S, variant):
+    """Separate clocks (as in Stage 1) and the combined clock k(u) + a(s_bar + u) (Rev-6), relative to u = 1 h,
+    with pointwise bootstrap bands; s_bar = median creation thread age of the dataset's comments."""
+    names, reps, coef = R["RE"]["names"], R["RE"]["reps"], R["RE"]["coef"]
+    ev = S["events_c"].filter(pl.col("stream") == "comment").join(S["units"].select(pl.col("id").alias("unit"), "s"), on="unit")
+    u_ev = ev["u"].to_numpy()
+    tau_ev = (ev["u"] + ev["s"]).to_numpy()
+    s_bar = float(np.median(S["units"]["s"].to_numpy()))
+    x0 = np.log(60.0)
+    xs = np.log(AGES / 60.0)
+    xt = np.log((s_bar + AGES) / 60.0)
+    xt0 = np.log((s_bar + 3600.0) / 60.0)
+    j = {k: names.index(k) for k in ["k1_log_u", "k2_log_u_sq", "a1_log_tau", "a2_log_tau_sq"]}
+
+    def kf(c):
+        return c[j["k1_log_u"]] * (xs - x0) + c[j["k2_log_u_sq"]] * (xs ** 2 - x0 ** 2)
+
+    def af(c, x=xs, xr=x0):
+        return c[j["a1_log_tau"]] * (x - xr) + c[j["a2_log_tau_sq"]] * (x ** 2 - xr ** 2)
+
+    def comb(c):
+        return kf(c) + af(c, xt, xt0)
+    tv = np.array([truth.get(n, np.nan) for n in names])
+    out = []
+    for clock, f, evs in [("comment_clock_k", kf, u_ev), ("thread_clock_a", af, tau_ev), ("combined_k_plus_a", comb, u_ev)]:
+        band = np.array([f(r) for r in reps])
+        lo, hi = np.nanpercentile(band, [2.5, 97.5], axis=0)
+        true, est = f(tv), f(coef)
+        p5, p95 = (np.percentile(evs, [5, 95]) if len(evs) else (np.nan, np.nan))
+        med = np.median(evs) if len(evs) else np.nan
+        for k, a in enumerate(AGES):
+            out.append({"population": pop, "variant": variant, "rep": rep, "clock": clock, "age_s": a, "true": true[k],
+                        "estimate": est[k], "lo": lo[k], "hi": hi[k], "in_event_range": bool(p5 <= a <= p95),
+                        "event_age_p5": p5, "event_age_p95": p95, "event_age_median": med, "s_bar": s_bar})
+    return out
+
+
+def run_recover2(pop: str, variant: str = "standard"):
+    n_rep, B = int(S1["replicates"]), int(S1["B"])
+    rev8 = variant == "rev8"
+    fr, fc = OUT / f"stage1b_recovery_{pop}_{variant}.parquet", OUT / f"stage1b_curves_{pop}_{variant}.parquet"
+    rows, curves, done = [], [], set()
+    if fr.exists() and fc.exists():
+        rows = pl.read_parquet(fr).to_dicts()
+        cprev = pl.read_parquet(fc).to_dicts()
+        done = {r["rep"] for r in rows} & {c["rep"] for c in cprev}
+        rows = [r for r in rows if r["rep"] in done]
+        curves = [c for c in cprev if c["rep"] in done]
+        print(f"  [recover2] {pop} {variant}: resuming, done {sorted(done)}", flush=True)
+    for rep in range(n_rep):
+        if rep in done:
+            continue
+        t0 = time.time()
+        items, diag, truth, rng = dataset(pop, rep)
+        S = extract(items)
+        R = EST2.fit_all(S, B, rng, rev8=rev8)
+        rows += rows_from_fit2(pop, rep, R, truth, diag, time.time() - t0, variant)
+        curves += clock_curves2(R, truth, pop, rep, S, variant)
+        cov = np.mean([r["covered"] for r in rows if r["rep"] == rep and r["model"] == "RE" and r["covered"] is not None])
+        print(f"  [recover2] {pop} {variant} rep {rep}: RE coverage {cov:.2f}, iters {R['RE']['n_iter']}, "
+              f"converged {R['RE']['converged']}, start b {R['RE']['start_b']}, {time.time() - t0:.0f}s", flush=True)
+        pl.DataFrame(rows, infer_schema_length=None).write_parquet(fr)
+        pl.DataFrame(curves).write_parquet(fc)
+
+
+def run_hn_joint2():
+    n_rep, B = int(S1["replicates"]), int(S1["B"])
+    truth = load_truth()
+    tv = {"gamma": S1["truth_spec"]["hn_shared"]["gamma"], "minus_kappa": -S1["truth_spec"]["hn_shared"]["kappa"]}
+    for pop in HN:
+        for nm in ["aR1", "aR2", "alpha_R"]:
+            tv[f"{nm}_{pop}"] = truth[pop]["truth_vector"][nm]
+    tv["log_r"], tv["b"] = truth["ask_hn"]["truth_vector"]["log_r"], truth["ask_hn"]["truth_vector"]["b"]
+    for h in range(1, 24):
+        tv[f"hour_{h}"] = truth["ask_hn"]["truth_vector"][f"hour_{h}"]
+    fj = OUT / "stage1b_recovery_hn_joint.parquet"
+    rows = pl.read_parquet(fj).to_dicts() if fj.exists() else []
+    done = {r["rep"] for r in rows}
+    for rep in range(n_rep):
+        if rep in done:
+            continue
+        t0 = time.time()
+        parts = []
+        for pop in HN:
+            items, diag, _, _ = dataset(pop, rep)
+            parts.append(items.filter(pl.col("is_root") | (pl.col("depth") == 1)).with_columns(
+                id=pl.when(pl.col("is_root")).then(pl.col("id")).otherwise(pl.lit(pop + ":") + pl.col("id"))))
+        S = extract(pl.concat(parts))
+        D = EST2.build(S, post_types=HN, comment_stream=False)
+        M = EST2.REModel2(D)
+        th, conv = M.fit_multistart()
+        I, sc = M.info(th), M.scores(th)
+        rng = np.random.default_rng([SEED, int(S1["dataset_seed_offset"]), 99, rep])
+        W = rng.multinomial(D["nT"], np.full(D["nT"], 1.0 / D["nT"]), size=B).astype(float)
+        reps = th[None, :] + ((W - 1.0) @ sc) @ np.linalg.inv(I).T
+        for j, nm in enumerate(M.names):
+            lo, hi = np.nanpercentile(reps[:, j], [2.5, 97.5])
+            t = tv.get(nm)
+            rows.append({"population": "hn_joint", "variant": "standard", "rep": rep, "model": "RE", "stage": "joint_root",
+                         "param": nm, "truth": t, "estimate": float(th[j]), "ci_lo": float(lo), "ci_hi": float(hi),
+                         "boot_sd": float(np.nanstd(reps[:, j])), "covered": bool(lo <= t <= hi) if t is not None else None,
+                         "re_iterations": conv["iterations"], "re_converged": conv["converged"], "start_b": conv["start_b"],
+                         "seconds": time.time() - t0})
+        k = M.names.index("minus_kappa")
+        print(f"  [hn_joint2] rep {rep}: kappa {-th[k]:.4f}, gamma {th[M.names.index('gamma')]:.4f}, "
+              f"iters {conv['iterations']}, converged {conv['converged']}, {time.time() - t0:.0f}s", flush=True)
+        pl.DataFrame(rows, infer_schema_length=None).write_parquet(fj)
+
+
+def run_bootcheck2():
+    B = int(S1["B"])
+    items, diag, truth, rng = dataset("ask_hn", 0)
+    S = extract(items)
+    D = EST2.build(S)
+    M = EST2.REModel2(D)
+    th, conv = M.fit_multistart()
+    W = np.random.default_rng([SEED, int(S1["dataset_seed_offset"]), 98]).multinomial(
+        D["nT"], np.full(D["nT"], 1.0 / D["nT"]), size=B).astype(float)
+    one = th[None, :] + ((W - 1.0) @ M.scores(th)) @ np.linalg.inv(M.info(th)).T
+    full = np.full_like(one, np.nan)
+    t0 = time.time()
+    for b in range(B):
+        full[b] = M.fit_weighted(th, W[b])
+        if b % 10 == 0:
+            print(f"  [bootcheck2] {b}/{B} {time.time() - t0:.0f}s", flush=True)
+    rows = []
+    for j, nm in enumerate(M.names):
+        lo1, hi1 = np.nanpercentile(one[:, j], [2.5, 97.5])
+        lo2, hi2 = np.nanpercentile(full[:, j], [2.5, 97.5])
+        rows.append({"param": nm, "estimate": float(th[j]), "onestep_lo": lo1, "onestep_hi": hi1, "refit_lo": lo2,
+                     "refit_hi": hi2, "width_ratio": (hi1 - lo1) / (hi2 - lo2),
+                     "centre_shift_in_refit_widths": ((lo1 + hi1) / 2 - (lo2 + hi2) / 2) / (hi2 - lo2)})
+    df = pl.DataFrame(rows)
+    df.write_csv(OUT / "stage1b_bootcheck.csv")
+    print(df, f"share within +-25%: {float(((df['width_ratio'] - 1).abs() <= 0.25).mean()):.2f}", flush=True)
+
+
 if __name__ == "__main__":
     cmd = sys.argv[1]
     if cmd == "roots":
@@ -498,3 +661,9 @@ if __name__ == "__main__":
         run_bootcheck()
     elif cmd == "summary":
         run_summary()
+    elif cmd == "recover2":
+        run_recover2(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else "standard")
+    elif cmd == "hn_joint2":
+        run_hn_joint2()
+    elif cmd == "bootcheck2":
+        run_bootcheck2()
