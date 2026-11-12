@@ -646,6 +646,29 @@
       },
       "scoring": "Rev-10 (docs/results_register.md); 5-replicate SDs from the 20-replicate midpoint run",
       "outputs": "outputs/fit1/stage1c_*"
+    },
+    "stage2": {
+      "populations": [
+        "philosophy",
+        "buildapc",
+        "ask_hn",
+        "link",
+        "show_hn"
+      ],
+      "joint_hn": [
+        "ask_hn",
+        "link",
+        "show_hn"
+      ],
+      "moltbook": "waits for the Rev-9 decision",
+      "estimator": "Rev-1, Rev-5, Rev-7 (Rev-8 bins only for Moltbook; no Rev-9)",
+      "data": "calibration split; fit on the capped inner fit fold, compare on the capped inner held-out fold (cap_comments)",
+      "B_fit": 100,
+      "B_heldout": 1000,
+      "sim_replicates": 5,
+      "seed_offset": 201,
+      "depth_tail_depth": 10,
+      "top_k_parent": 3
     }
   }
 }

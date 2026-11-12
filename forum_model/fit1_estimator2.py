@@ -121,7 +121,7 @@ def _cX(u_age, s, depth, op, n, pos, tau_pos):
                            ).astype(np.float64)
 
 
-def build_comment(S: dict, tmap: dict, edges: np.ndarray, quad: bool = False) -> dict:
+def build_comment(S: dict, tmap: dict, edges: np.ndarray, quad: bool = False, with_time: bool = False) -> dict:
     units = S["units"]
     uid = {k: i for i, k in enumerate(units["id"].to_list())}
     ec = S["events_c"]
@@ -144,21 +144,24 @@ def build_comment(S: dict, tmap: dict, edges: np.ndarray, quad: bool = False) ->
     i, a, b, n, sh = i[okp], a[okp], b[okp], n[okp], sh[okp]
     qi, qage, qlogw = quad_nodes(a, b, quad)  # Rev-9 (identity without quad)
     tpos = s[i] + (a + b) / 2
-    i, n, sh, tpos = i[qi], n[qi], sh[qi], tpos[qi]
+    tabs = T0[i] + tpos  # absolute time of the piece's midpoint
+    i, n, sh, tpos, tabs = i[qi], n[qi], sh[qi], tpos[qi], tabs[qi]
     Xe = _cX(qage, s[i], depth[i], op[i], n, pos[i], tpos)
     order = _event_order(ev_unit, ev_u)
     k = np.nonzero(is_c & (ev_u <= U[ev_unit]))[0]
     ku = ev_unit[k]
     Xv = _cX(ev_u[k], s[ku], depth[ku], op[ku], order[k].astype(float), pos[ku], s[ku] + ev_u[k])
     ne = len(i)
-    return {"X": np.vstack([Xe, Xv]).astype(np.float32), "thr": np.r_[thr_u[i], thr_u[ku]],
+    extra = {"abs_mid": np.r_[tabs, T0[ku] + s[ku] + ev_u[k]]} if with_time else {}
+    return {**extra, "X": np.vstack([Xe, Xv]).astype(np.float32), "thr": np.r_[thr_u[i], thr_u[ku]],
             "y": np.r_[np.zeros(ne), np.ones(len(k))], "logw": np.r_[qlogw, np.full(len(k), EV_LOGEXP)],
             "sub_cell": np.arange(ne + len(k)),
             "sub_hour": np.r_[sh, _hour(T0[ku] + s[ku] + ev_u[k])],
             "sub_logexp": np.r_[qlogw, np.full(len(k), EV_LOGEXP)].astype(np.float32)}
 
 
-def build_root(S: dict, tmap: dict, edges: np.ndarray, post_types: list[str], quad: bool = False) -> dict:
+def build_root(S: dict, tmap: dict, edges: np.ndarray, post_types: list[str], quad: bool = False,
+               with_time: bool = False) -> dict:
     roots = S["roots"]
     er = S["events_r"]
     rt_unit = np.array([tmap[t] for t in er["thread_id"].to_list()], dtype=np.int64)
@@ -176,7 +179,8 @@ def build_root(S: dict, tmap: dict, edges: np.ndarray, post_types: list[str], qu
     okp = b > a
     j, a, b, n, sh_e = j[okp], a[okp], b[okp], n[okp], sh_e[okp]
     qi, qage, qlogw = quad_nodes(a, b, quad)  # Rev-9 (identity without quad)
-    j, n, sh_e = j[qi], n[qi], sh_e[qi]
+    tabs = T0[j] + (a + b) / 2
+    j, n, sh_e, tabs = j[qi], n[qi], sh_e[qi], tabs[qi]
     keep = rt_t <= UR[rt_unit]
     rt_unit, rt_t = rt_unit[keep], rt_t[keep]
     nev = _event_order(rt_unit, rt_t).astype(float)
@@ -201,6 +205,8 @@ def build_root(S: dict, tmap: dict, edges: np.ndarray, post_types: list[str], qu
            "sub_cell": np.arange(ne + len(rt_unit)),
            "sub_hour": np.r_[sh_e, _hour(T0[rt_unit] + rt_t)],
            "sub_logexp": np.r_[qlogw, np.full(len(rt_unit), EV_LOGEXP)].astype(np.float32), "names": names}
+    if with_time:
+        out["abs_mid"] = np.r_[tabs, T0[rt_unit] + rt_t]
     if multi:
         out["R_type"] = np.column_stack([(ptype == ty) for ty in post_types]).astype(np.float32)
         out["R_type_names"] = [f"alpha_R_{ty}" for ty in post_types]
@@ -208,15 +214,15 @@ def build_root(S: dict, tmap: dict, edges: np.ndarray, post_types: list[str], qu
 
 
 def build(S: dict, rev8: bool = False, post_types: list[str] | None = None, comment_stream: bool = True,
-          quad: bool = False) -> dict:
+          quad: bool = False, with_time: bool = False) -> dict:
     roots = S["roots"]
     tids = roots["thread_id"].to_list()
     tmap = {t: i for i, t in enumerate(tids)}
     types = post_types or sorted(set(roots["post_type"].to_list()))
     edges = edges_for(rev8)
-    D = {"nT": len(tids), "tids": tids, "R": build_root(S, tmap, edges, types, quad)}
+    D = {"nT": len(tids), "tids": tids, "R": build_root(S, tmap, edges, types, quad, with_time)}
     if comment_stream:
-        D["C"] = build_comment(S, tmap, edges, quad)
+        D["C"] = build_comment(S, tmap, edges, quad, with_time)
     return D
 
 
@@ -239,7 +245,7 @@ class REModel2:
             X[:nc, pc + pr] = 1.0
         X[nc:, pc:pc + pr] = R["X"]
         X[nc:, pc + pr + ia:] = rint
-        self.names = (C_NAMES if C is not None else []) + R["names"] + (["alpha_c"] if C is not None else []) + rnames \
+        self.names = (C.get("names", C_NAMES) if C is not None else []) + R["names"] + (["alpha_c"] if C is not None else []) + rnames \
             + HOURS + ["log_r", "b"]
         self.X, self.Pr, self.nT = X, Pr, D["nT"]
         self.p = Pr + 23  # linear parameters (rest + hours 1..23)

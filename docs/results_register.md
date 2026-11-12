@@ -178,3 +178,47 @@ User decision, prioritising Stage 2 on the human populations:
   is left open.
 - **Stage 2 for the human populations proceeds now** with the current estimator: Rev-1, 5, 7 and 8 (Rev-8
   bins on Moltbook only), without Rev-9. Moltbook's Stage 2 waits for the Rev-9 decision.
+
+### Stage 2: fit and compare. Pre-stated tests (committed before any Stage 2 fit on real data)
+
+Human populations: r/philosophy, r/buildapc, Ask HN, HN link, Show HN, and the joint HN root-stream fit for κ.
+Moltbook waits for the Rev-9 decision. If Rev-9 is kept, Stage 2 is rerun for all populations with Rev-9 and
+both versions are reported.
+- **Estimator:** Rev-1, Rev-5 and Rev-7. Rev-8 bins apply only to Moltbook. No Rev-9.
+- **Data:** calibration split only. Fit on the capped inner fit fold; compare on the capped inner held-out fold.
+  The validation split is not read.
+- **Settings:** `partitions.json` → `fit1.stage2`.
+- **Code:** `forum_model/fit1_stage2.py`, `scripts/fit1_stage2.py`.
+
+**Models** (all fitted on the fit fold):
+- **full:** comment and root streams with gamma fitness integrated out, plus the reply-back stream.
+- **B1:** the full model without the thread clock a(·) in the comment stream. Covariates, hours and fitness are
+  kept, so B1 is nested in the full model. Stage 1's B1, which also dropped the covariates, is not reused.
+- **B3:** reply-backs pooled into the comment stream; no reply-back stream.
+- **B2 (Gómez):** conditional logit over the candidates present at each reply. Features: log(1 + replies so far),
+  log recency rank (1 = newest; the root is oldest) and a root indicator.
+
+| # | what | rule / specification |
+|---|---|---|
+| F2-S1 | Pass rule (brief) | On the held-out fold, the full model beats **B1 and B3 on timing log-likelihood per event**, and **B2 on parent-choice log-likelihood per reply**. Each difference must have a 95% thread-bootstrap interval excluding 0 (above 0). The rule must hold in **≥ 4 of the 5 human populations**. |
+| F2-S1 definitions | – | **Timing:** per held-out thread, the **unmarked** log-likelihood of the same events for every model, at the fit-fold estimates, with thread fitness integrated out on the log-z grid. The events are every reply to a non-root comment (comment-stream and reply-back events alike, as "a reply to c") and every root-stream event, within the 3-day horizon. Full and B1 score a reply to c at time t with the pooled intensity z·λ_c(t) + λ_back,c(t). B3 uses its pooled comment stream, so it reduces to B3's own marginal likelihood (checked numerically). Per event = sum over threads / number of events. Why unmarked: the full model's own likelihood is marked. It also predicts whether each reply is a reply-back, at a cost of log(λ_back/(λ_c + λ_back)) per reply-back, which B3 never pays. On synthetic data from the full model, the marked comparison made B3 beat the true parameters by 7,500 nats on 29,000 events (smoke test, development seed). The marked comparison is therefore not used. **Parent choice:** every held-out reply (comment-stream, reply-back or root-stream event). Candidates are the root plus every comment present. Full model: P(c) = E[λ_c \| history] / E[Σ λ \| history]. Here λ_c = comment-stream rate × z + reply-back rate, and root rate × z^b. E[z] and E[z^b] are posterior means given the thread's events and expected counts before the reply; expected counts come from exposure rows whose midpoint precedes the reply. **Intervals:** 1,000 multinomial thread-bootstrap resamples of held-out threads. Parameters stay at the fit-fold estimates, so fit-fold estimation uncertainty is not propagated. |
+| F2-M1 (added by user decision; reported, not part of the pass rule) | Top-3 parent accuracy | Share of held-out replies whose true parent is among the model's 3 most probable candidates (rank = 1 + number of candidates with strictly higher probability). Reported for the full model and B2, with their difference and intervals, and again among replies with ≥ 4 candidates (the share of such replies is also reported). |
+| F2-M2 (added by user decision; reported, not part of the pass rule) | Depth-tail error at depth 10 | P(depth ≥ 10) among comments within 3 days of thread creation. Simulated value: 5 replicates per held-out thread (real root time and post type, fitness drawn fresh, fit-fold parameters). Observed value: the held-out fold. Error = simulated − observed (also as a log ratio), for full, B1 and B3, with a paired thread bootstrap. Depth is a validation-list quantity: it is computed, never fitted or used to choose a model. The model generates neither self-replies nor the OP's own top-level comments; observed depths include them. |
+| F2-R1 | "Scored under Rev-10" | Stage 2 has no truth, so Rev-10 enters only through the Stage 1 parameter gate (F1-S3, rescored under Rev-10). The flagged human parameters are r/buildapc k1, k2, aR1 and aR2. They are reported with a flag; by user decision their biases (≤ 0.01) do not affect the comparisons. Hours are reported as a daily profile. |
+| F2-R2 | Reported quantities | All parameters per population, with 95% one-step thread-bootstrap intervals (B = 100, fit fold; F1-S4). κ with its interval, from the joint HN root-stream fit. ρ and g_back (median, σ) by platform. Fitness shape r. μ and μ₀: model-implied (MCF at 3 days on the simulated held-out threads, censored at thread age 3 days), against the observed held-out fold (same censoring, non-self replies) and the audit values (`outputs/audit/mu_bootstrap.csv`). Distance to criticality 1 − μ. Per-author μ: audit values only, because the model-implied per-author μ needs the author model (Stage 3). Intervals on simulated quantities reflect held-out thread sampling and simulation, not parameter uncertainty. |
+| F2-D (deferred) | Comment-level gamma check (brief) | Not run in this Stage 2. It needs a nested-frailty estimator that is not built yet, and will be proposed separately. |
+
+**Code check before any real data (synthetic only, development seed).** The Stage 2 pipeline ran on 3,000
+synthetic Ask HN threads from the Stage 1 truth, split 4:1 by thread hash (`scripts/fit1_stage2.py smoke`). The
+data come from the full model, so the full model should win:
+
+| comparison | difference | 95% interval |
+|---|---|---|
+| timing, full − B1 | +0.023 per event | [0.020, 0.027] |
+| timing, full − B3 | +0.004 per event | [0.002, 0.006] |
+| parent choice, full − B2 | +0.070 per reply | [0.063, 0.078] |
+
+- All fits converged.
+- B3's unmarked score equals its own marginal log-likelihood to 3e-10.
+- The model's μ and μ₀ from simulation fall inside the observed held-out intervals.
+- The first, marked version of the B3 comparison failed this check, and was replaced (see F2-S1 definitions).
