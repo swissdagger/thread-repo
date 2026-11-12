@@ -1,0 +1,40 @@
+# Explicit Reddit bot accounts dropped in every analysis (case-insensitive match on author).
+# Sources: AutoModerator (platform bot); eliassjogreen/Reddit-Bot-List @ 20818ac6 (2021-08-22);
+# widely known utility bots active 2018-2021. This is a PROVISIONAL list: replace or extend with
+# the project's standard Pushshift-era bot list when supplied. Name-rule hits are reported separately.
+AutoModerator
+stabbot
+stabbot_crop
+DeepFryBot
+gifreversingbot
+vredditshare
+VredditDownloader
+morejpeg_auto
+gifendore
+r2tg_bot
+WololoBot
+tippr
+RemindMeBot
+profanitycounter
+Eminem_Bot
+WikiTextBot
+BotDefense
+sneakpeekbot
+CommonMisspellingBot
+LinkFixerBot
+timezone_bot
+converter-bot
+TweetPoster
+SmallSubBot
+HelperBot_
+BigLebowskiBot
+MAGIC_EYE_BOT
+RepostSleuthBot
+SaveVideo
+savevideobot
+WikiSummarizerBot
+# Added in step 2: r/philosophy moderation bot (rules reminder on ~78% of threads; 42,622 comments in window)
+BernardJOrtcutt
+# Added before step 3 (S10 review of proxy-(c) subreddits): r/Fantasy book-link bot; subreddit summary bot
+RedditFantasyBot
+subredditsummarybot

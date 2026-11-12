@@ -1,0 +1,30 @@
+{
+  "AskHistorians": {
+    "raw_comment_rows_dup_ids": 0,
+    "threads_without_root_record": 0,
+    "comments_without_root_record": 0,
+    "submissions_dup_ids": 0,
+    "t3_parent_not_thread_root": 0
+  },
+  "Fantasy": {
+    "raw_comment_rows_dup_ids": 0,
+    "threads_without_root_record": 0,
+    "comments_without_root_record": 0,
+    "submissions_dup_ids": 0,
+    "t3_parent_not_thread_root": 0
+  },
+  "buildapc": {
+    "raw_comment_rows_dup_ids": 0,
+    "threads_without_root_record": 0,
+    "comments_without_root_record": 0,
+    "submissions_dup_ids": 0,
+    "t3_parent_not_thread_root": 0
+  },
+  "philosophy": {
+    "raw_comment_rows_dup_ids": 0,
+    "threads_without_root_record": 0,
+    "comments_without_root_record": 0,
+    "submissions_dup_ids": 0,
+    "t3_parent_not_thread_root": 0
+  }
+}

@@ -1,0 +1,113 @@
+{
+  "id": 3,
+  "name": "2M-parent cap: sampling method and reconfirmation",
+  "threshold": "independent numpy-random sample of the same size reproduces step-3 mu within 1% and Weibull shape within 0.01, and step-4 (a) beta within max(0.01, 4 SE) and flattening within 0.01",
+  "result": {
+    "units": [
+      {
+        "unit": "step3 buildapc nonroot",
+        "mu_hash": 0.7319112725343708,
+        "mu_random": 0.730929338118663,
+        "rel_diff_mu": -0.0013416030775256216,
+        "shape_hash": 0.4213004965212244,
+        "shape_random": 0.4190044136740904,
+        "abs_diff_shape": 0.0022960828471340067
+      },
+      {
+        "unit": "step3 link nonroot",
+        "mu_hash": 0.6449796678018307,
+        "mu_random": 0.6453694883780791,
+        "rel_diff_mu": 0.0006043920385536694,
+        "shape_hash": 0.5902597595601407,
+        "shape_random": 0.5890803846286076,
+        "abs_diff_shape": 0.0011793749315330837
+      },
+      {
+        "unit": "step4 (a) buildapc per-author",
+        "beta_hash": -0.2684589156141902,
+        "beta_random": -0.2674852728277068,
+        "se_beta": 0.0014673764630634232,
+        "flattening_hash": 0.015773968947105477,
+        "flattening_random": 0.015655109714521886,
+        "weibull_shape_M0_hash": 0.37815024334097336,
+        "weibull_shape_M0_random": 0.3762503442082295
+      }
+    ],
+    "describe": {
+      "reddit:buildapc": {
+        "describe": {
+          "full_fit_fold": {
+            "n": 6194327,
+            "share_replied": 0.5128515172027567,
+            "mean_log_c": 18.278621031009987,
+            "share_depth1": 0.39099711720094854,
+            "top1_share": 0.45355920021658525,
+            "mean_replies": 0.6032164591891903
+          },
+          "hash_cap": {
+            "n": 2000000,
+            "share_replied": 0.5132225,
+            "mean_log_c": 18.27838437080218,
+            "share_depth1": 0.3907875,
+            "top1_share": 0.453385,
+            "mean_replies": 0.6041675
+          },
+          "numpy_random": {
+            "n": 2000000,
+            "share_replied": 0.5127445,
+            "mean_log_c": 18.278593221740227,
+            "share_depth1": 0.3906345,
+            "top1_share": 0.4531955,
+            "mean_replies": 0.60255
+          }
+        },
+        "weibull_hash_cap": {
+          "mu": 0.7319112725343708,
+          "shape": 0.4213004965212244
+        },
+        "weibull_numpy_random": {
+          "mu": 0.730929338118663,
+          "shape": 0.4190044136740904
+        }
+      },
+      "hn:link": {
+        "describe": {
+          "full_fit_fold": {
+            "n": 5678208,
+            "share_replied": 0.47078972802687047,
+            "mean_log_c": 18.00713485988727,
+            "share_depth1": 0.18068041889272107,
+            "top1_share": 0.46524554930006085,
+            "mean_replies": 0.8158496483397579
+          },
+          "hash_cap": {
+            "n": 2000000,
+            "share_replied": 0.4707575,
+            "mean_log_c": 18.007228849396125,
+            "share_depth1": 0.180623,
+            "top1_share": 0.4655825,
+            "mean_replies": 0.815681
+          },
+          "numpy_random": {
+            "n": 2000000,
+            "share_replied": 0.4709475,
+            "mean_log_c": 18.007387868944978,
+            "share_depth1": 0.180698,
+            "top1_share": 0.4652635,
+            "mean_replies": 0.815606
+          }
+        },
+        "weibull_hash_cap": {
+          "mu": 0.6449796678018307,
+          "shape": 0.5902597595601407
+        },
+        "weibull_numpy_random": {
+          "mu": 0.6453694883780791,
+          "shape": 0.5890803846286076
+        }
+      }
+    }
+  },
+  "status": "PASS",
+  "notes": "The cap keeps the 2,000,000 fit-fold parents with the lowest sha256('<seed>:cap:<comment id>'): a deterministic simple random sample of comments, independent of every covariate (not stratified by thread). Thread clustering is handled in the bootstrap, not the cap."
+}

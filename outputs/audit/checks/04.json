@@ -1,0 +1,59 @@
+{
+  "id": 4,
+  "name": "Per-author weights across inner folds",
+  "threshold": "within each inner fold every known author's weights sum to 1 (|sum - 1| < 1e-9); unknown authors weight 0",
+  "result": {
+    "per_population": [
+      {
+        "dataset": "reddit",
+        "community": "philosophy",
+        "max_abs_sum_minus_1": 1.1102230246251565e-16,
+        "unknown_weight_max": 0.0,
+        "authors_in_both_folds": 13723,
+        "authors": 104484
+      },
+      {
+        "dataset": "reddit",
+        "community": "buildapc",
+        "max_abs_sum_minus_1": 1.1102230246251565e-16,
+        "unknown_weight_max": 0.0,
+        "authors_in_both_folds": 170687,
+        "authors": 750262
+      },
+      {
+        "dataset": "hn",
+        "community": "ask_hn",
+        "max_abs_sum_minus_1": 1.1102230246251565e-16,
+        "unknown_weight_max": 0.0,
+        "authors_in_both_folds": 19700,
+        "authors": 73461
+      },
+      {
+        "dataset": "hn",
+        "community": "link",
+        "max_abs_sum_minus_1": 1.1102230246251565e-16,
+        "unknown_weight_max": 0.0,
+        "authors_in_both_folds": 73240,
+        "authors": 174211
+      },
+      {
+        "dataset": "hn",
+        "community": "show_hn",
+        "max_abs_sum_minus_1": 1.1102230246251565e-16,
+        "unknown_weight_max": 0.0,
+        "authors_in_both_folds": 9715,
+        "authors": 44149
+      },
+      {
+        "dataset": "moltbook_crawl",
+        "community": "moltbook",
+        "max_abs_sum_minus_1": 1.1102230246251565e-16,
+        "unknown_weight_max": 0.0,
+        "authors_in_both_folds": 5062,
+        "authors": 11416
+      }
+    ]
+  },
+  "status": "PASS",
+  "notes": "Weights are 1/(the author's parents in that fold, in that population), so fit-fold and held-out-fold weights never mix; an author present in both folds is weighted separately in each. After the 2M cap weights are not renormalised: the cap is a simple random sample, so each author keeps the same expected share. Step 4 recomputes weights within each proxy's parent set and fold; the early/late split pools the calibration split (descriptive) and recomputes there."
+}

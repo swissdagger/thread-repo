@@ -1,0 +1,72 @@
+{
+  "posts_total": 759997,
+  "comments_total": 3079480,
+  "posts_unparsed_created": 0,
+  "comments_unparsed_created": 0,
+  "comments_on_unknown_posts": 7,
+  "depth_check_n": 1181994,
+  "depth_check_mismatch": 3,
+  "comment_cap": {
+    "threads_at_cap": 898,
+    "threads_any_shortfall": 65613,
+    "comments_in_capped_threads": 120531,
+    "claimed_in_capped_threads": 1904433,
+    "max_stored_size": 1017
+  },
+  "largest_gaps": [
+    {
+      "stream": "any",
+      "gap_hours": 17.446702553364965,
+      "gap_start_utc": "2026-01-28T01:48:37.645343+00:00",
+      "gap_end_utc": "2026-01-28T19:15:25.774535+00:00"
+    },
+    {
+      "stream": "any",
+      "gap_hours": 5.993501917521159,
+      "gap_start_utc": "2026-01-27T18:01:13.220848+00:00",
+      "gap_end_utc": "2026-01-28T00:00:49.827751+00:00"
+    },
+    {
+      "stream": "any",
+      "gap_hours": 3.9082776497470006,
+      "gap_start_utc": "2026-02-01T00:45:10.327345+00:00",
+      "gap_end_utc": "2026-02-01T04:39:40.126884+00:00"
+    },
+    {
+      "stream": "comment",
+      "gap_hours": 41.618010082509784,
+      "gap_start_utc": "2026-01-31T10:39:45.197830+00:00",
+      "gap_end_utc": "2026-02-02T04:16:50.034127+00:00"
+    },
+    {
+      "stream": "comment",
+      "gap_hours": 17.60473493973414,
+      "gap_start_utc": "2026-01-28T01:48:37.645343+00:00",
+      "gap_end_utc": "2026-01-28T19:24:54.691126+00:00"
+    },
+    {
+      "stream": "comment",
+      "gap_hours": 0.9743680783775117,
+      "gap_start_utc": "2026-01-28T20:12:28.965634+00:00",
+      "gap_end_utc": "2026-01-28T21:10:56.690716+00:00"
+    },
+    {
+      "stream": "post",
+      "gap_hours": 17.905585446423956,
+      "gap_start_utc": "2026-01-28T01:21:05.666928+00:00",
+      "gap_end_utc": "2026-01-28T19:15:25.774535+00:00"
+    },
+    {
+      "stream": "post",
+      "gap_hours": 5.993501917521159,
+      "gap_start_utc": "2026-01-27T18:01:13.220848+00:00",
+      "gap_end_utc": "2026-01-28T00:00:49.827751+00:00"
+    },
+    {
+      "stream": "post",
+      "gap_hours": 5.202723635567559,
+      "gap_start_utc": "2026-01-29T09:14:49.405857+00:00",
+      "gap_end_utc": "2026-01-29T14:26:59.210945+00:00"
+    }
+  ]
+}

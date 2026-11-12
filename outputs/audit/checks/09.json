@@ -1,0 +1,34 @@
+{
+  "id": 9,
+  "name": "Sort assumptions for proxies (a) and (d)",
+  "threshold": "documented; unverifiable parts flagged",
+  "result": {
+    "buildapc_suggested_sort_counts": [
+      {
+        "suggested_sort": "confidence",
+        "len": 1356802
+      },
+      {
+        "suggested_sort": "new",
+        "len": 1441
+      },
+      {
+        "suggested_sort": "top",
+        "len": 1
+      },
+      {
+        "suggested_sort": "qa",
+        "len": 1
+      }
+    ],
+    "share_sibling_groups_with_tied_top_final_score": 0.5360214295784577,
+    "share_comments_final_score_1": 0.6869784776478336,
+    "assumptions": {
+      "a": "Display order approximated by rank of FINAL net score among siblings (Reddit 'best' = Wilson lower bound on up/down votes; only net score is available). Ties broken by creation time, oldest first. Stickied and moderator-distinguished comments (pinned on top) cannot be identified (no 'stickied' field in GECLM comments) and are ranked by score like others. Collapsed/'load more' children are not modelled.",
+      "b": "Early-thread display order = arrival order (oldest first) among siblings: under 'best' new comments all start at score 1 (one self-vote), so their confidence is equal and Reddit's tie-break order is assumed chronological. HN early order assumed to follow arrival the same way.",
+      "d": "suggested_sort = 'new' shows top-level comments newest first; position(t) = 1 + newer top-level siblings so far. Assumes readers use the suggested sort (a reader can override it), stickied comments are not identified, and the sort applies from thread creation (snapshot value; see check 8)."
+    }
+  },
+  "status": "FLAG",
+  "notes": "The assumptions cannot be verified with GECLM: no per-comment vote split, no stickied flag, no reader-side sort. Final-score ties among siblings are common (see result), so (a)'s tie-break matters."
+}

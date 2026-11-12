@@ -1,0 +1,13 @@
+source,scope,comments,median_parent_to_child_min,share_within_1min
+"moltbook_crawl (window, all posts incl. spam)",all comments,946276,8.076741268237432,0.21195613119216802
+"moltbook_crawl (window, all posts incl. spam)",replies to posts (depth 1),852226,8.952539082368215,0.20145947201798584
+"moltbook_crawl (window, all posts incl. spam)",replies to comments (depth >= 2),94050,5.087407559156418,0.30707070707070705
+reddit philosophy,all comments,553388,111.03333333333333,0.012548157892834684
+reddit philosophy,replies to posts (depth 1),134967,280.28333333333336,0.027421517852512095
+reddit philosophy,replies to comments (depth >= 2),418313,78.78333333333333,0.007752568053108557
+reddit buildapc,all comments,7750117,15.283333333333333,0.04141472960988847
+reddit buildapc,replies to posts (depth 1),3021756,23.166666666666668,0.020406346508454024
+reddit buildapc,replies to comments (depth >= 2),4728332,12.183333333333334,0.054840480744583926
+hn (all classes),all comments,7786415,84.71666666666667,0.005133813186171043
+hn (all classes),replies to posts (depth 1),1611412,183.78333333333333,0.018647000270570157
+hn (all classes),replies to comments (depth >= 2),6175003,66.63333333333334,0.0016074486117658565

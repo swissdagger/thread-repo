@@ -1,0 +1,674 @@
+{
+  "_purpose": "Single source of truth for which data each fit uses. Every script reads this file. All partitions below are RESERVED for the human baseline (Reddit, HN) or the agent baseline (Moltbook) and must never be reused for agent conditioning.",
+  "reserved_for_human_baseline": true,
+  "seed": 20261107,
+  "sources": {
+    "reddit_comments": {
+      "repo": "HuggingFaceGECLM/REDDIT_comments",
+      "revision": "54779d3d1f1c1b12e5989f695e13d38b394a558f"
+    },
+    "reddit_submissions": {
+      "repo": "HuggingFaceGECLM/REDDIT_submissions",
+      "revision": "229261a8756442f8d5dc4cb98f1df1a3ba79eb23"
+    },
+    "hn": {
+      "repo": "jkeisling/hacker-news-corpus-2007-2022",
+      "revision": "fbdad5742351d0ee1ae578e45140fa2d745ff705",
+      "note": "BigQuery bigquery-public-data.hacker_news.full not configured in this environment (no credentials); using the brief's Hugging Face fallback."
+    },
+    "moltbook": {
+      "repo": "SimulaMet/moltbook-observatory-archive",
+      "revision": "2bd2498ac0fc7d86148149e0f3d470d5c813538f"
+    },
+    "moltbook_crawl": {
+      "repo": "giordano-dm/moltbook-crawl",
+      "revision": "e8c22348b04b99439b44d9373e41f776fda69a2f",
+      "note": "SQLite crawl, observation 2026-01-27..2026-02-09. Stores at most 100 comments per post (API limit; 10,728 posts affected per README). Contains the ~42 h comment outage starting 2026-02-01."
+    }
+  },
+  "reddit": {
+    "subreddits": [
+      "philosophy",
+      "buildapc"
+    ],
+    "thread_window_utc": [
+      "2018-01-01T00:00:00",
+      "2021-12-31T23:59:59"
+    ],
+    "thread_window_applies_to": "submission created_utc (root). All comments on in-window submissions are kept, including those after the window end, so reply delays are not truncated at 2021-12-31.",
+    "observation_end_utc": "2023-01-31T23:59:59",
+    "proxy_c_subreddits": {
+      "Fantasy": {
+        "role": "proxy (c) PRIMARY",
+        "threads": "contest_mode = true",
+        "window": "same as reddit.thread_window_utc"
+      },
+      "AskHistorians": {
+        "role": "proxy (c) SECONDARY",
+        "threads": "suggested_sort = 'random'",
+        "window": "same as reddit.thread_window_utc"
+      },
+      "use_restriction": "These subreddits are used only for the position check (Step 4, proxy c). Reserved for the human baseline like all other partitions; never reused for agent conditioning.",
+      "pre_use_checks": "S10 bot review (authors in >1% of threads, by hand) and deletion/removal rates reported before any use.",
+      "contest_mode_effects": "Per Reddit's API description as reproduced in PRAW 7.7.1 SubmissionModeration.contest_mode: comment thread defaults to random sort; replies to top-level comments are hidden behind '[show replies]'; scores hidden from non-moderators (obscured to 1 via the API).",
+      "event_restriction": "Proxy (c) uses only replies whose parent is a top-level comment (depth-2 comments): top-level comments are the only items shown in randomized order; deeper comments are collapsed by default. Applied to AskHistorians random-sort threads too, for comparability (random sort does not collapse replies)."
+    },
+    "proxy_d": {
+      "subreddits": [
+        "philosophy",
+        "buildapc"
+      ],
+      "threads": "suggested_sort = 'new'",
+      "note": "within the two study subreddits only (decision after step 2)"
+    },
+    "processing": "one subreddit at a time: data/processed/reddit/<subreddit>/items.parquet and split.parquet"
+  },
+  "hn": {
+    "thread_window_utc": [
+      "2019-01-01T00:00:00",
+      "2021-12-31T23:59:59"
+    ],
+    "thread_window_applies_to": "story/poll time (root). All descendants kept regardless of their own time.",
+    "observation_end_utc": "2022-11-16T23:59:59",
+    "post_classes": {
+      "ask_hn": "story, title starts with 'Ask HN' (case-insensitive)",
+      "show_hn": "story, title starts with 'Show HN'",
+      "link": "story with non-empty url, not Ask/Show HN",
+      "text_other": "story without url, not Ask/Show HN (Tell HN, Launch HN, etc.)",
+      "poll": "type = poll",
+      "job": "type = job (excluded: comments disabled)",
+      "deleted_root": "story/poll with deleted=true (no title/url, cannot be classified); reported as its own class from step 2 on"
+    }
+  },
+  "moltbook": {
+    "thread_window_utc": [
+      "2026-01-28T00:00:00",
+      "2026-02-04T23:59:59"
+    ],
+    "thread_window_applies_to": "post created_at (root). All comments on in-window posts are kept.",
+    "known_gap_hours": 41.7,
+    "gap_note": "Periodicity-sensitive analyses must use contiguous segments. The 41.7 h gap is the 2026-02-01 commenting outage documented in the moltbook-crawl README; located empirically in step 1 (outputs/moltbook*/step1_coverage_gaps.csv).",
+    "primary_source": "moltbook_crawl",
+    "archive_role": "SimulaMet archive is a cross-check only, and only for posts created 2026-02-08 onward (decision after step 1).",
+    "contiguous_comment_segments_utc": [
+      [
+        "2026-01-28T19:24:54",
+        "2026-01-31T10:39:45"
+      ],
+      [
+        "2026-02-02T04:16:50",
+        "2026-02-04T23:59:58"
+      ]
+    ],
+    "segment_use": "Steps 3 and 6 (timing, hazards, tails) use only the two contiguous segments. Step 2 structure uses the whole thread window.",
+    "truncation": {
+      "thread_size": "API-reported comment_count from the post table (complete for all posts).",
+      "shape_statistics": "depth, fan-out by depth, reciprocity, OP return, bimodality use only completely stored threads (stored comments >= API-reported comment_count). Reddit and HN are reported both full-population and size-matched (threads with < 100 comments), side by side.",
+      "fits": "stored size is right-censored at 100 in any fit that uses the trees."
+    },
+    "spam_filter": {
+      "source": "De Marzo & Garcia (2026), Collective Behavior of AI Agents: the Case of Moltbook",
+      "rule": "for posts with >= 5 stored comments, exclude the post if unique comment content / stored comments < 0.5 or unique comment authors / stored comments < 0.2",
+      "applies_to": "all Moltbook analyses from step 2 on"
+    },
+    "archive_crosscheck": {
+      "posts_created_utc": [
+        "2026-02-08T00:00:00",
+        "2026-02-14T23:59:59"
+      ],
+      "observation_end_utc": "2026-03-31T23:59:59",
+      "note": "archive cross-check only (decision after step 1); split by the same hash rule with dataset key 'moltbook_archive'; used in step 4b speed reconciliation"
+    },
+    "scaffolding_accounts": {
+      "file": "config/moltbook_scaffolding_accounts.txt",
+      "match": "author name (crawl author_name, archive agent_name); trailing * = prefix match",
+      "rule": "every Moltbook timing fit (first-reply kernels, all-reply intensities, speed numbers, mu) is reported with and without these accounts, excluded both as parents and as reply events; neither version replaces the other",
+      "residual_crawl_bump": "the residual 1-2 d bump in crawl root intensity after removing the sweepers (Step 6b.1) is not pursued",
+      "decided": "after Step 6b"
+    }
+  },
+  "holdout": {
+    "validation_fraction": 0.2,
+    "unit": "thread",
+    "stratify_by": "calendar month (UTC) of root creation, per dataset (Reddit additionally per subreddit, HN additionally per post class)",
+    "method": "within each stratum, threads are ranked by sha256('<seed>:<dataset>:<thread_id>') and the lowest round(0.2 * n) are assigned to validation; deterministic, no RNG state",
+    "assignment_files": "data/processed/<dataset>/split.parquet (regenerable from this file; per-stratum counts in outputs/<dataset>/step1_split_counts.csv)",
+    "inner_calibration_fold": {
+      "purpose": "model selection by held-out likelihood inside the calibration split (step 3 on); the 20% validation split is never used for fitting or selection",
+      "method": "sha256('<seed>:fold:<dataset>:<thread_id>') -> uniform; < 0.2 -> 'heldout', else 'fit'"
+    }
+  },
+  "quantity_lists": {
+    "calibration": [
+      "reply timing",
+      "parent choices"
+    ],
+    "validation": [
+      "depth",
+      "size shape",
+      "reciprocity",
+      "original-poster return",
+      "bimodality of distinct-commenter counts"
+    ],
+    "rule": "No quantity appears on both lists. Reply half-life is calibration only."
+  },
+  "author_filters": {
+    "bot_list_file": "config/reddit_bot_authors.txt",
+    "bot_name_rule": "case-insensitive regex (^bot[_-]|[_-]bot$|bot$) on Reddit author names: SENSITIVITY ONLY, never a filter",
+    "top_active_fraction": 0.01,
+    "top_active_definition": "authors ranked by comment count within the dataset's in-window threads (per subreddit for Reddit); ties broken by name",
+    "application": "Filters are applied at comment level in analyses (comment excluded as a reply / parent candidate), not at tree-building time, so trees stay intact.",
+    "primary_filter": "explicit list in config/reddit_bot_authors.txt (AutoModerator, eliassjogreen/Reddit-Bot-List, known utility bots)",
+    "not_used": "PublicResourceLicense/Reddit_Blocklist (380k accounts) is not used"
+  },
+  "position_proxies": {
+    "a": "confidence-sort position from final score; look-ahead-affected (Reddit only). Reported with ties broken oldest-first and at random; dropped for a subreddit if the two disagree materially (step4b.proxy_a_ties). Step 4b: no material disagreement in philosophy or buildapc, kept for both",
+    "b": "early-thread arrival order, first 30 minutes; MAIN identification",
+    "c": "contest-mode threads (order randomized). PLACEBO CHECK ONLY (decision after the audit): no further contest-mode data",
+    "d": "suggested_sort = 'new' threads; second arrival-order identification (display order = reverse arrival)",
+    "hn": "HN comment scores are hidden and its sort uses them, so HN position is latent: use only proxy (b) on HN"
+  },
+  "descriptive_scope": {
+    "step2": "Descriptive statistics are computed on the CALIBRATION split only; validation threads are left untouched for model validation."
+  },
+  "step3": {
+    "fit_cap_parents": 2000000,
+    "fit_cap_method": "if the fit fold has more parent comments, keep those with sha256('<seed>:cap:<id>') in the lowest 2,000,000",
+    "events": "first direct reply that is not a self-reply and not by an explicit-list bot, created before the parent's censoring time",
+    "censoring": {
+      "reddit": "data end (partitions reddit.observation_end_utc)",
+      "hn": "data end (partitions hn.observation_end_utc)",
+      "moltbook": "thread's last crawl time (max crawled_at in the thread); comments created in contiguous segment 1 are also censored at the segment end (comment outage start)"
+    },
+    "moltbook_threads": {
+      "primary": "complete (stored >= API-reported), non-spam, calibration split; parent comments created in one of the two contiguous segments",
+      "sensitivity": "adds incomplete non-spam threads, each censored at the creation time of its last stored comment (assumes the stored comments are the earliest; the API's selection rule is undocumented, see reports/step2b.md)"
+    }
+  },
+  "step4b": {
+    "age_fe": {
+      "thread_age_bins_s": [
+        0,
+        600,
+        1800,
+        3600,
+        7200,
+        14400,
+        28800,
+        57600,
+        115200,
+        259200
+      ],
+      "horizon_s": 259200,
+      "cap_parents": 400000,
+      "cap_method": "threads in calibration split ordered by sha256('<seed>:4b:<thread_id>'), taken until the parent count would exceed the cap"
+    },
+    "proxy_a_ties": {
+      "variants": [
+        "oldest",
+        "random"
+      ],
+      "material_disagreement": "|beta_random - beta_oldest| > max(0.05, 2 x thread-clustered SE) or |flattening difference| > 0.01 or the flattening CIs fall on opposite sides of 0; if material, proxy (a) is dropped for that subreddit",
+      "outcome": {
+        "philosophy": "kept",
+        "buildapc": "kept"
+      }
+    },
+    "position_b": {
+      "window_s": 1800,
+      "rank": "arrival rank among siblings created in the first 30 min of the thread; parents with >= 2 such siblings",
+      "censoring": "min(observation end, thread start + 30 min)",
+      "controls": [
+        "log1p(minutes since thread start)",
+        "depth dummies (only those with >= 10 first-reply events)"
+      ],
+      "placebo": "r/Fantasy contest-mode threads, top-level comments; control: r/Fantasy non-contest threads with >= 20 comments"
+    },
+    "speed": {
+      "horizon_s": 259200,
+      "archive_window": "moltbook.archive_crosscheck"
+    }
+  },
+  "mu_horizon": {
+    "primary_s": 259200,
+    "reported_s": 604800
+  },
+  "step5": {
+    "populations": {
+      "treatment": "hn ask_hn",
+      "control": "hn link"
+    },
+    "horizon_s": 259200,
+    "root_age_bins_s": [
+      0,
+      600,
+      1800,
+      3600,
+      7200,
+      14400,
+      28800,
+      57600,
+      115200,
+      259200
+    ],
+    "cap_roots": 150000,
+    "cap_method": "roots ordered by sha256('<seed>:4b:<thread_id>'), first cap_roots kept",
+    "events": "top-level comments: visible (not dead), not by the root author, not explicit-list bots",
+    "candidate_answer": "first such top-level comment (never defined by score)"
+  },
+  "step6": {
+    "horizon_s": 2592000,
+    "bin_edges": "0, then 40 log-spaced edges from 10 s to 30 d",
+    "min_parents_at_risk_per_bin": 100,
+    "tail_fit_range_s": [
+      259200,
+      2592000
+    ],
+    "kernel_fit_range_s": [
+      0,
+      259200
+    ],
+    "populations": [
+      "reddit philosophy",
+      "reddit buildapc",
+      "moltbook_crawl (to its observable horizon)",
+      "moltbook_archive (moltbook.archive_crosscheck window, observed to observation_end_utc)"
+    ],
+    "units": [
+      "nonroot",
+      "root_live"
+    ]
+  },
+  "step5b": {
+    "dose_response": {
+      "populations": [
+        "hn ask_hn",
+        "hn link",
+        "hn show_hn"
+      ],
+      "states": "number of earlier top-level comments: 0, 1, 2, >=3; each event belongs to the state it ends",
+      "covariates": "step_1 = 1[>=1 earlier], step_2 = 1[>=2], step_3 = 1[>=3]; thread FE; root-age bins as step5",
+      "horizon_s": 259200,
+      "cap_roots": 150000
+    },
+    "show_hn_control": {
+      "population": "hn show_hn, all calibration live roots",
+      "model": "step5 unchanged"
+    },
+    "placebo": {
+      "threads": {
+        "ask_hn": 30422,
+        "link": 150000
+      },
+      "horizon_s": 259200,
+      "base_shape": "log-normal density in root age, median 7200 s, sigma 1.5 (log seconds)",
+      "rate": "lambda_g(t) = A_P * a_g * base(t) * [1 + (M - 1) * 1(spike_g and T_g <= t < T_g + D)]",
+      "heterogeneity": "a_g ~ Gamma(k_P, scale 1/k_P)",
+      "spike": {
+        "probability_pi": [
+          0.25,
+          1.0
+        ],
+        "multiplier_M": [
+          3,
+          10,
+          30
+        ],
+        "start_T": "log-uniform on [300 s, 43200 s]",
+        "duration_D_s": 7200
+      },
+      "matching": "for each (pi, M) and population P, (A_P, k_P) chosen so that the simulated mean top-level comments per root within 3 d and the share of roots with >= 1 match the Step 5 calibration values (ask_hn 6.424, 0.736; link 1.755, 0.236)",
+      "simulations_per_setting": 20,
+      "estimator": "scripts/step5_saturation.py cells + FEPoissonBoot, raw weights, unchanged",
+      "no_saturation": true,
+      "no_popularity_feedback": true
+    },
+    "seed_offset": 52,
+    "B": 200
+  },
+  "step6b": {
+    "sweepers": {
+      "source": "audit check 7 (outputs/audit/check07_first_repliers.csv)",
+      "author_names": [
+        "Stromfee",
+        "FinallyOffline"
+      ],
+      "population": "moltbook_crawl complete, non-spam, outage handled (step6 default), roots",
+      "bump_statistic": "R = observed events in bins with midpoints in [1 d, 2 d] / expected from a Poisson log-log linear fit on bins with midpoints in [0.25 d, 0.9 d] and [2.2 d, 6 d]; per-author primary, raw also; thread bootstrap B = 200",
+      "bump_present": "R > 1 with 95% CI excluding 1",
+      "disappears": "bump present with the sweepers' replies and, without them, R's 95% CI includes 1 or lies below 1"
+    },
+    "archive_late_authors": {
+      "population": "moltbook_archive cross-check window, roots and comments, default events",
+      "late": "reply delay > 3 d (the step6 tail window, up to 30 d)",
+      "early_comparison": "reply delay <= 3 d",
+      "statistics": [
+        "distinct authors",
+        "top-1, top-5, top-10 author shares",
+        "Herfindahl index",
+        "top-10 author names with counts",
+        "authors of replies in spike bins: 3-30 d bins whose events exceed 2x the fitted 3-30 d power law"
+      ],
+      "concentrated": "top-5 share of late replies > 0.5",
+      "intervals": "thread bootstrap B = 200 for shares and HHI"
+    },
+    "seed_offset": 62
+  },
+  "fit1": {
+    "brief": "docs/fit1_brief.md",
+    "horizon": "thread age [0, 3 d]; every comment is censored at its thread's 3-day mark (and at obs_end); root stream likewise",
+    "cap_comments": 100000,
+    "cap_method": "inner fit fold; whole threads in sha256('<seed>:fit1:<thread_id>') order until the number of comments created in the first 3 d of their thread would exceed cap_comments",
+    "bins": "comment age (comment stream) or thread age (root stream): [0, 10 s] plus 39 log-spaced bins from 10 s to 3 d (40 bins); cells further split at the unit's own reply events and, for comments, at thread age 30 min",
+    "covariates_in_cells": "clock terms at the cell's geometric-midpoint age; hour of day (UTC) at the cell's arithmetic midpoint",
+    "stage1": {
+      "seed_offset": 101,
+      "replicates": 20,
+      "B": 100,
+      "calibration_iterations": 5,
+      "bootstrap": "one-step (estimating-function) thread bootstrap, Hu & Kalbfleisch 2000: theta* = theta_hat + I^-1 sum_T (w_T - 1) s_T per stage; Stage B evaluated at each replicate's Stage A coefficients",
+      "truth_spec": {
+        "hn_shared": {
+          "gamma": 0.01,
+          "kappa": 0.03,
+          "hour_amp_peak": [
+            0.3,
+            16
+          ]
+        },
+        "philosophy": {
+          "k_median_sigma": [
+            60,
+            2.0
+          ],
+          "a_median_sigma": [
+            600,
+            1.5
+          ],
+          "aR_median_sigma": [
+            300,
+            2.0
+          ],
+          "hour_amp_peak": [
+            0.3,
+            17
+          ],
+          "beta": [
+            -0.12,
+            -0.05,
+            0.05,
+            0.05,
+            -0.15
+          ],
+          "gamma": 0.005,
+          "back_median_sigma": [
+            60,
+            1.5
+          ],
+          "beta_back": [
+            0.3,
+            0.2
+          ],
+          "r": 12.0,
+          "b": 3.5,
+          "pi_prev": 0.3
+        },
+        "buildapc": {
+          "k_median_sigma": [
+            20,
+            2.0
+          ],
+          "a_median_sigma": [
+            120,
+            1.5
+          ],
+          "aR_median_sigma": [
+            28,
+            2.0
+          ],
+          "hour_amp_peak": [
+            0.3,
+            18
+          ],
+          "beta": [
+            -0.29,
+            -0.15,
+            0.0,
+            0.05,
+            -0.11
+          ],
+          "gamma": 0.005,
+          "back_median_sigma": [
+            20,
+            1.5
+          ],
+          "beta_back": [
+            0.8,
+            0.2
+          ],
+          "r": 12.0,
+          "b": 3.0,
+          "pi_prev": 0.3
+        },
+        "ask_hn": {
+          "k_median_sigma": [
+            100,
+            2.0
+          ],
+          "a_median_sigma": [
+            300,
+            1.2
+          ],
+          "aR_median_sigma": [
+            60,
+            1.5
+          ],
+          "beta": [
+            0.02,
+            -0.1,
+            -0.36,
+            0.05,
+            -0.16
+          ],
+          "back_median_sigma": [
+            90,
+            1.5
+          ],
+          "beta_back": [
+            0.5,
+            0.2
+          ],
+          "r": 12.0,
+          "b": 3.5,
+          "pi_prev": 0.3
+        },
+        "link": {
+          "k_median_sigma": [
+            70,
+            2.0
+          ],
+          "a_median_sigma": [
+            360,
+            1.0
+          ],
+          "aR_median_sigma": [
+            80,
+            1.5
+          ],
+          "beta": [
+            -0.54,
+            -0.52,
+            -0.19,
+            0.05,
+            -0.23
+          ],
+          "back_median_sigma": [
+            90,
+            1.5
+          ],
+          "beta_back": [
+            -0.5,
+            0.2
+          ],
+          "r": 12.0,
+          "b": 3.5,
+          "pi_prev": 0.3
+        },
+        "show_hn": {
+          "k_median_sigma": [
+            85,
+            2.0
+          ],
+          "a_median_sigma": [
+            360,
+            1.2
+          ],
+          "aR_median_sigma": [
+            140,
+            1.5
+          ],
+          "beta": [
+            -0.58,
+            -0.5,
+            -0.26,
+            0.05,
+            0.1
+          ],
+          "back_median_sigma": [
+            90,
+            1.5
+          ],
+          "beta_back": [
+            1.0,
+            0.2
+          ],
+          "r": 12.0,
+          "b": 3.5,
+          "pi_prev": 0.3
+        },
+        "moltbook": {
+          "k_median_sigma": [
+            15,
+            2.4
+          ],
+          "a_median_sigma": [
+            30,
+            1.5
+          ],
+          "aR_median_sigma": [
+            1.5,
+            1.8
+          ],
+          "hour_amp_peak": [
+            0.1,
+            12
+          ],
+          "beta": [
+            -0.3,
+            -0.3,
+            -1.35,
+            0.0,
+            -0.2
+          ],
+          "gamma": -0.02,
+          "back_median_sigma": [
+            10,
+            2.0
+          ],
+          "beta_back": [
+            0.0,
+            0.0
+          ],
+          "r": 4.0,
+          "b": 1.5,
+          "pi_prev": 0.1
+        },
+        "notes": "beta order: dep2, dep3p, op, logn, pos. Medians in minutes. Values set near Step 3/4b/4c estimates and audit volumes; alpha_c, alpha_R and rho are calibrated so the generator matches each population's real capped volumes (outputs/fit1/stage1_real_targets.csv). HN post types share gamma, kappa (Ask only) and the hour profile, so the joint HN root-stream fit is well specified. Moltbook is the burst-heavy setting (top-level comments within minutes; thread age and comment age nearly collinear). Fitness: r = 12 (CV 0.29) with b = 3-3.5 on the root stream for humans, r = 4 with b = 1.5 for Moltbook; popularity exponent (logn) 0.05 for humans. Human comment streams are near-critical (comment stream + reply-backs = 0.6-0.85 per comment); a wider fitness or stronger popularity feedback makes high-fitness threads supercritical and explode within 3 days. b > 1 keeps root fan-out overdispersed (real top-level variance/mean 14-140; the truth gives less: plausible, not matched)."
+      },
+      "dataset_seed_offset": 102,
+      "fe_arm_replicates": 5,
+      "arms": {
+        "RE": "random effects: gamma fitness integrated out; all replicates",
+        "FE": "the brief's estimator (thread FE, then fitness on totals); replicates 0-4"
+      },
+      "redraw_rule": "a replicate dataset in which any thread reaches the generator's 20,000-comment guard is redrawn with attempt seed + 1; redraws reported",
+      "event_rows": "events enter as their own rows with covariates at the exact event time (log offset 1e-9); exposure cells carry no events",
+      "seeds": "calibration: [seed, seed_offset]; datasets: [seed, dataset_seed_offset, population index, replicate, attempt]; bootstrap weights drawn from the dataset's generator state after simulation; joint HN weights [seed, dataset_seed_offset, 99, rep]; bootstrap check [seed, dataset_seed_offset, 98]"
+    },
+    "stage1b": {
+      "estimator": "forum_model/fit1_estimator2.py (Rev-1, Rev-5, Rev-7; Rev-8 Moltbook test)",
+      "multistart": {
+        "b_grid": [
+          0.5,
+          1.0,
+          2.0,
+          3.5,
+          5.0
+        ],
+        "profile_newton_iterations": 8,
+        "final_cap_iterations": 100,
+        "convergence": "largest step < 1e-7 before the cap"
+      },
+      "rev8_edges": "[0, 1 s], log-spaced 1-10 s (4 bins), then the standard 39 log bins 10 s - 3 d",
+      "rev8_keep_rule": "fewer root-stream genuine failures (aR1, aR2, gamma, alpha_R, b, log_r) and no more total genuine failures on Moltbook",
+      "F1_S2b": "combined clock k(u)+a(s_bar+u) relative to 1 h inside the band at >= 90% of event-range ages in >= 18/20",
+      "outputs": "outputs/fit1/stage1b_*",
+      "datasets": "identical to stage 1 (same truth, seeds)"
+    },
+    "stage1c": {
+      "purpose": "Rev-9 test (Gauss-Legendre exposure quadrature) and confirmation; same datasets, truth and seeds as stage 1",
+      "rev9": {
+        "nodes": 2,
+        "min_log_width": 0.1,
+        "zero_start": "composite 2-point GL in log age over [1 ms, b], sub-pieces of log width <= 2, plus [0, 1 ms] at one point"
+      },
+      "keep_runs": {
+        "moltbook": "rev8_rev9 vs rev8",
+        "replicates": 20,
+        "amendment": "2026-11-12: keep rule on Moltbook alone (targets aR1, aR2, gamma); r/buildapc Rev-9 run stopped before any replicate completed; confirmation runs not started"
+      },
+      "confirmation_runs": {
+        "populations": [
+          "philosophy",
+          "ask_hn",
+          "show_hn",
+          "link",
+          "hn_joint"
+        ],
+        "variant": "rev9",
+        "replicates": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ]
+      },
+      "scoring": "Rev-10 (docs/results_register.md); 5-replicate SDs from the 20-replicate midpoint run",
+      "outputs": "outputs/fit1/stage1c_*"
+    },
+    "stage2": {
+      "populations": [
+        "philosophy",
+        "buildapc",
+        "ask_hn",
+        "link",
+        "show_hn"
+      ],
+      "joint_hn": [
+        "ask_hn",
+        "link",
+        "show_hn"
+      ],
+      "moltbook": "waits for the Rev-9 decision",
+      "estimator": "Rev-1, Rev-5, Rev-7 (Rev-8 bins only for Moltbook; no Rev-9)",
+      "data": "calibration split; fit on the capped inner fit fold, compare on the capped inner held-out fold (cap_comments)",
+      "B_fit": 100,
+      "B_heldout": 1000,
+      "sim_replicates": 5,
+      "seed_offset": 201,
+      "depth_tail_depth": 10,
+      "top_k_parent": 3
+    }
+  }
+}

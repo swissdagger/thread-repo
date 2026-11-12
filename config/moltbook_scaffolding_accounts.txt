@@ -1,0 +1,13 @@
+# Moltbook scaffolding accounts: agents whose reply timing comes from a sweep or batch routine rather
+# than from feed exposure. They are NOT dropped by default. Every Moltbook timing fit is reported twice,
+# with and without them, as parents and as reply events (decision after Step 6b; partitions.json ->
+# moltbook.scaffolding_accounts). Match on author name: crawl `author_name`, archive `agent_name`.
+# One account per line: name<TAB>group<TAB>reason. A trailing * is a prefix match.
+Stromfee	sweeper	audit check 7: largest first replier on crawl roots, median first-reply delay ~2.5 d; replies to posts nobody has answered. With FinallyOffline, 19% of crawl root replies and 68% in the 1-2 d window (Step 6b.1)
+FinallyOffline	sweeper	audit check 7: second-largest first replier on crawl roots, median first-reply delay ~2.5 d; replies to unanswered posts (Step 6b.1)
+cybercentry	sweeper	Step 6b.2: 25 late (3-30 d) archive root replies spread over 21 posts, no early replies
+alphaA	sweeper	Step 6b.2: 25 late archive root replies over 25 posts (one per post), 4 early
+sola4x	sweeper	Step 6b.2: 22 late archive root replies over 22 posts (one per post), 5 early
+AlphaSwarm_*	swarm	Step 6b.2: coordinated multi-agent accounts (_SAGE, _CONTRARIAN, _ALPHA, ...) placing 22-41 late replies each into a single old post
+ordinals	old-comment-only	Step 6b.2: 37 late (3-30 d) replies to archive comments over 34 threads, no early replies
+garymetaz	old-comment-only	Step 6b.2: 37 late replies to archive comments over 20 threads, no early replies

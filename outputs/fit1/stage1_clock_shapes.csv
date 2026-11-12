@@ -1,0 +1,13 @@
+population,clock,reps_band_ok,reps_informative,median_halfwidth,n
+ask_hn,comment_clock_k,19,20,0.003102242818216819,20
+ask_hn,thread_clock_a,20,20,0.015619069523932282,20
+buildapc,comment_clock_k,18,20,0.032014488904194116,20
+buildapc,thread_clock_a,18,20,0.0057181364320796,20
+link,comment_clock_k,13,20,0.004660692498405422,20
+link,thread_clock_a,15,20,0.027479327325422756,20
+moltbook,comment_clock_k,13,20,0.28247990949828117,20
+moltbook,thread_clock_a,13,20,0.2623982863303632,20
+philosophy,comment_clock_k,18,20,0.00448438609072857,20
+philosophy,thread_clock_a,18,20,0.025418871610022153,20
+show_hn,comment_clock_k,18,20,0.0028375219564115775,20
+show_hn,thread_clock_a,17,20,0.023717385597125225,20

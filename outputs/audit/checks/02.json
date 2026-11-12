@@ -1,0 +1,83 @@
+{
+  "id": 2,
+  "name": "Negative or zero parent-to-child delays; timestamp units and zones",
+  "threshold": "negative delays < 0.01% of comments in every dataset; all timestamps epoch seconds (UTC) inside the expected observation range",
+  "result": {
+    "per_dataset": [
+      {
+        "community": "philosophy",
+        "n": 698351,
+        "neg": 2,
+        "neg_share": 2.8638893622261586e-06,
+        "zero": 0,
+        "zero_share": 0.0,
+        "min_neg": -37.0,
+        "created_min_utc": "2018-01-01 01:30:21.000000",
+        "created_max_utc": "2022-06-15 01:11:50.000000",
+        "frac_nonint": 0.0
+      },
+      {
+        "community": "buildapc",
+        "n": 9693713,
+        "neg": 0,
+        "neg_share": 0.0,
+        "zero": 4643,
+        "zero_share": 0.0004789702356568634,
+        "min_neg": 0.0,
+        "created_min_utc": "2018-01-01 00:12:14.000000",
+        "created_max_utc": "2023-01-31 23:56:17.000000",
+        "frac_nonint": 0.0
+      },
+      {
+        "community": "Fantasy",
+        "n": 2215092,
+        "neg": 2,
+        "neg_share": 9.028970354278738e-07,
+        "zero": 3893,
+        "zero_share": 0.0017574890794603566,
+        "min_neg": -24.0,
+        "created_min_utc": "2018-01-01 00:53:51.000000",
+        "created_max_utc": "2022-06-25 09:59:49.000000",
+        "frac_nonint": 0.0
+      },
+      {
+        "community": "AskHistorians",
+        "n": 895541,
+        "neg": 57,
+        "neg_share": 6.364867716832619e-05,
+        "zero": 93824,
+        "zero_share": 0.10476795590598309,
+        "min_neg": -3326108.0,
+        "created_min_utc": "2018-01-01 01:21:58.000000",
+        "created_max_utc": "2022-06-22 05:33:10.000000",
+        "frac_nonint": 0.0
+      },
+      {
+        "community": "hn",
+        "n": 9765245,
+        "neg": 593,
+        "neg_share": 6.072556295310563e-05,
+        "zero": 18182,
+        "zero_share": 0.0018619092506127598,
+        "min_neg": -441965.0,
+        "created_min_utc": "2019-01-01 00:43:23.000000",
+        "created_max_utc": "2022-10-31 18:41:23.000000",
+        "frac_nonint": 0.0
+      },
+      {
+        "community": "moltbook_crawl",
+        "n": 1181994,
+        "neg": 0,
+        "neg_share": 0.0,
+        "zero": 0,
+        "zero_share": 0.0,
+        "min_neg": 0.27244114875793457,
+        "created_min_utc": "2026-01-28 01:18:36.000000",
+        "created_max_utc": "2026-02-09 17:36:34.000000",
+        "frac_nonint": 1.0
+      }
+    ]
+  },
+  "status": "PASS",
+  "notes": "Units: Reddit created_utc and HN time are integer epoch seconds (UTC by definition); Moltbook created_at is ISO 8601 with +00:00, parsed to UTC epoch seconds with microsecond fractions. Negative delays are clipped to 0 and zero delays placed at 0.5 s in the timing fits. Zero delays are mostly same-second bot replies (Reddit AutoModerator, step 1) and HN same-second replies."
+}

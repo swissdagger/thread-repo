@@ -1,0 +1,104 @@
+{
+  "id": 7,
+  "name": "Moltbook created_at semantics; 30-second root reply median",
+  "threshold": "created_at is a UTC server timestamp: no comment created after it was crawled (< 0.01%), parent-to-child delays non-negative (check 2); the fast root replies are reported with who writes them",
+  "result": {
+    "timestamp_format": {
+      "sample": [
+        [
+          "2026-01-30T18:04:59.256165+00:00",
+          "2026-02-01 17:33:43"
+        ],
+        [
+          "2026-01-30T18:05:02.992846+00:00",
+          "2026-02-01 17:33:43"
+        ],
+        [
+          "2026-01-30T18:06:45.486738+00:00",
+          "2026-02-01 17:33:43"
+        ],
+        [
+          "2026-01-31T00:03:30.805081+00:00",
+          "2026-02-01 17:33:43"
+        ],
+        [
+          "2026-01-31T08:07:36.400316+00:00",
+          "2026-02-01 17:34:32"
+        ]
+      ],
+      "share_with_offset": 1.0,
+      "mean_length": 31
+    },
+    "share_comments_created_after_crawled": 0.0,
+    "duplicate_timestamp_comments": 102,
+    "root_first_reply_quantiles": {
+      "q10_s": 4.304622173309326,
+      "q25_s": 11.06682300567627,
+      "q50_s": 29.830414056777954,
+      "q75_s": 96.59208512306213,
+      "q90_s": 616.1723749637604
+    },
+    "root_first_reply_shares": {
+      "lt_5s": 0.11831457790146306,
+      "lt_30s": 0.5012225929778582,
+      "lt_60s": 0.6602812639314808,
+      "lt_10min": 0.8993015684314335
+    },
+    "top10_first_repliers_share": 0.3621948774736762,
+    "top10_first_repliers": [
+      {
+        "first_author": "Stromfee",
+        "n": 8995,
+        "med_delay_s": 217418.84163188934
+      },
+      {
+        "first_author": "FinallyOffline",
+        "n": 6394,
+        "med_delay_s": 202706.6177510023
+      },
+      {
+        "first_author": "botcrong",
+        "n": 4565,
+        "med_delay_s": 24.496763944625854
+      },
+      {
+        "first_author": "Starclawd-1",
+        "n": 4134,
+        "med_delay_s": 11.681139469146729
+      },
+      {
+        "first_author": "alignbot",
+        "n": 3241,
+        "med_delay_s": 26.725475072860718
+      },
+      {
+        "first_author": "ClaudeOpenBot",
+        "n": 2651,
+        "med_delay_s": 10.012015104293823
+      },
+      {
+        "first_author": "WarrenBuffer",
+        "n": 2634,
+        "med_delay_s": 9.968336462974548
+      },
+      {
+        "first_author": "TipJarBot",
+        "n": 2010,
+        "med_delay_s": 40.364381074905396
+      },
+      {
+        "first_author": "XiaoWang_Assistant",
+        "n": 1741,
+        "med_delay_s": 35.08118486404419
+      },
+      {
+        "first_author": "Jorday",
+        "n": 1576,
+        "med_delay_s": 20.055306911468506
+      }
+    ],
+    "median_first_reply_s_excluding_top10": 33.466732025146484
+  },
+  "status": "PASS",
+  "notes": "created_at strings carry microseconds and an explicit +00:00 offset (server-assigned UTC). The root first-reply speed is interpreted in reports/audit.md together with the share written by the most frequent first repliers."
+}

@@ -1,0 +1,9 @@
+population,variant,fits,converged,max_iter,start_b,mean_seconds
+ask_hn,standard,20,20,5,3.5,625.132828450203
+buildapc,standard,20,20,6,3.5,623.0917132139206
+hn_joint,standard,20,20,14,"3.5,5.0",199.06775444746017
+link,standard,20,20,5,3.5,635.8252491950989
+moltbook,rev8,20,20,7,2.0,785.3605897903442
+moltbook,standard,20,20,7,"1.0,2.0",797.1443601489067
+philosophy,standard,20,20,5,3.5,641.619634270668
+show_hn,standard,20,20,5,3.5,587.7728588819504
