@@ -113,3 +113,28 @@ datasets.
 | Rev-6 (adopted) | Moltbook clocks | Moltbook reports the combined clock k(u) + a(s̄ + u), not the separate clocks. |
 | F1-S2b | Combined clock recovered (replaces F1-S2) | Moltbook (kept variant). The true combined log-shape C(u) = k(u) + a(s̄ + u) − [k(1 h) + a(s̄ + 1 h)] lies inside the pointwise 95% thread-bootstrap band at ≥ 90% of the 25 log-spaced ages (1 min–3 d) within the 5th–95th percentile of comment-stream event ages, in ≥ 18/20 datasets. s̄ is the dataset's median comment creation thread age. Reported for every population; the rule applies to Moltbook. |
 | F1-S1, F1-S3, F1-S4, F1-S5 (rerun) | Unchanged rules | Rerun with the revised estimator on all six populations and the joint HN fit (20 replicates each). F1-S4 is rerun on Ask HN replicate 0. |
+
+### Stage 1 rerun: outcomes
+
+Run 2026-11-11 to 11-12 on the Stage 1 datasets (same truth and seeds). All 160 fits converged: 20 replicates
+× 7 fits, plus Moltbook twice, with at most 14 Newton iterations. Report: `reports/fit1_stage1_rerun.md`.
+Tables: `outputs/fit1/stage1b_coverage.csv`, `stage1b_clock_shapes.csv`, `stage1b_rev8_decision.json`,
+`stage1b_bootcheck.csv`, `stage1b_B1_kernel.csv`, `stage1b_run_meta.csv`.
+
+| # | outcome |
+|---|---|
+| Rev-8 | **Kept for Moltbook.** By the pre-stated rule, root-stream genuine failures fall from 6 to 3, and total genuine failures from 10 to 3. With Rev-8 bins: b 18/20 (standard bins: 12/20), γ 17/20 (7/20), aR2 11/20 (2/20), log r 17/20 (16/20). The Moltbook results below use the Rev-8 variant; both variants are in the tables. |
+| F1-S1 (rerun) | **Fails (literal rule).** Parameters covered in ≥ 18/20 (of 44): HN link 41 (Stage 1: 15), r/buildapc 41 (41), Ask HN 40 (41), Show HN 38 (40), Moltbook 38 (34), r/philosophy 36 (36). Joint HN: 31 of 36 (20). |
+| F1-S3 (rerun) | Genuine failures: Ask HN 1, Show HN 1, r/philosophy 1, HN link 1, joint HN 2, Moltbook 3, r/buildapc 10. Stage 1 counts were 0, 1, 1, 28, 11, 10 and 11 respectively. **Chance level:** under exact coverage and no bias, the two F1-S3 criteria flag a parameter with probability ≈ 0.04: coverage ≤ 15/20 has p ≈ 0.016, and \|bias\| > 0.5 SD over 20 replicates is \|z\| > 2.24, p ≈ 0.025. That is ≈ 1.8 flags per 44-parameter fit. Ask HN, Show HN, r/philosophy, HN link and the joint fit are at chance level. Their flags are hours, b, and α_R for link. **Moltbook is not at chance level:** root clock aR1 14/20 (bias +1.5 SD) and aR2 11/20 (−1.8 SD), γ 17/20 (−1.2 SD). The aR1 and aR2 errors have opposite signs, and their sign flipped between the two bin sets. **r/buildapc is not at chance level:** 6 hours, k1 (15/20, +0.85 SD), k2 (−0.74 SD), aR1 (+0.6), aR2 (−0.6), α_R (−0.73). All are small in absolute terms (for example, k1 −0.242 vs −0.251) on the tightest intervals of any population. |
+| F1-S3 note (correction to the Stage 1 report) | The r/buildapc hour flags are **not** attenuation toward 0, as the Stage 1 report said. All 23 hours sit +0.011 above truth on average: in Stage 1 too (+0.011), and in both runs the deviations barely correlate with the true value (r ≈ 0.2). This is a common shift relative to the hour-0 baseline. Rev-7 therefore could not remove it, and did not. Across five human populations the common shift is +0.011 (t = 2.3), +0.005, +0.005, −0.001 and −0.006, so it is marginal. Because the datasets are identical, Stage 1 and the rerun share the same realised shift. |
+| F1-S2b | **Passes, at the threshold.** Moltbook (Rev-8 variant): the true combined clock lies inside the band at ≥ 90% of event-range ages in 18/20 replicates. The standard-bin variant gets 17/20. The separate Moltbook clocks get k 17/20 and a 16/20, against 13/20 each in Stage 1. Human populations, reported only: combined clock 17–18/20. |
+| F1-S4 (rerun) | **Passes.** On Ask HN replicate 0, one-step and full-refit interval widths agree within 5% for all 39 parameters (ratios 0.95–1.03), and centres differ by ≤ 0.04 refit widths. |
+| F1-S5 (rerun) | Unchanged. The B1 comment kernel covers the true comment clock in 0/20 replicates for both terms in every human population (e.g. Ask HN k1 0.68 vs 0.15). Moltbook (Rev-8): k1 18/20, k2 0/20. |
+| Convergence (Rev-5) | 160/160 fits converged. Starting b from the profile: 3.5 for every human fit; 2.0 for Moltbook with Rev-8 bins (standard bins: 1.0 or 2.0); 3.5 or 5.0 for the joint HN fit. |
+
+### Proposed after the rerun (not applied; needs confirmation)
+
+| # | revision | reason |
+|---|---|---|
+| Rev-9 (proposed) | Exposure integral by 3-point Gauss–Legendre quadrature in log age within each cell, replacing the single geometric midpoint. Test on Moltbook and r/buildapc under a pre-stated rule like Rev-8's. | The remaining non-chance failures are clock and root-clock terms. They sit where the clock is strongly curved within a log bin (the Moltbook root stream in its first minutes) or where intervals are tight enough to show a small approximation error (r/buildapc, the largest sample). Rev-8's finer bins halved the Moltbook root-stream failures, and the aR1/aR2 bias changed sign with the bins. Both point to cell-integration error rather than identification. |
+| Rev-10 (proposed) | F1-S3's bias criterion: flag \|bias\| > 0.5 SD only if it also exceeds 3 standard errors of the replicate mean, and treat the 23 hour effects as one block (a common shift across hours counts as one flag). | At n = 20 the current criterion fires at p ≈ 0.025 per parameter, and it counts a shared hour-0 baseline deviation up to 23 times. Logged for a future stage; the rerun was scored under the rule as stated. |

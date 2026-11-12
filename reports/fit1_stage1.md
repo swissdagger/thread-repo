@@ -1,5 +1,8 @@
 # First model fit, Stage 1: generator and estimator recovery
 
+> Rerun with the revised estimator (Rev-1/5/7/8, F1-S2b): `reports/fit1_stage1_rerun.md`. That report also
+> corrects this report's description of the r/buildapc hour bias (a common shift, not attenuation).
+
 **Synthetic data only.** No real reply was used for estimation in this stage. The real data entered only as
 inputs:
 - each population's root arrival times and post types (the capped inner fit fold of the calibration split);

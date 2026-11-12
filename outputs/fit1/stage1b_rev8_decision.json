@@ -1,0 +1,14 @@
+{
+ "counts": {
+  "standard": {
+   "root_genuine": 6,
+   "total_genuine": 10
+  },
+  "rev8": {
+   "root_genuine": 3,
+   "total_genuine": 3
+  }
+ },
+ "keep_rev8": true,
+ "moltbook_variant": "rev8"
+}

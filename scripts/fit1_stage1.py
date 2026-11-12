@@ -645,6 +645,130 @@ def run_bootcheck2():
     print(df, f"share within +-25%: {float(((df['width_ratio'] - 1).abs() <= 0.25).mean()):.2f}", flush=True)
 
 
+ROOT_STREAM = ["aR1", "aR2", "gamma", "alpha_R", "b", "log_r"]
+
+
+def _coverage(d: pl.DataFrame) -> pl.DataFrame:
+    return d.filter((pl.col("model") == "RE") & pl.col("truth").is_not_null()).group_by(
+        "population", "variant", "stage", "param").agg(
+        n_rep=pl.len(), covered=pl.col("covered").sum(), truth=pl.col("truth").first(),
+        mean_est=pl.col("estimate").mean(), mean_boot_sd=pl.col("boot_sd").mean(), sd_est=pl.col("estimate").std()
+    ).with_columns(bias_in_sd=(pl.col("mean_est") - pl.col("truth")) / pl.col("mean_boot_sd"),
+                   sd_ratio=pl.col("mean_boot_sd") / pl.col("sd_est"),
+                   pass_literal=pl.col("covered") >= (0.9 * pl.col("n_rep")).ceil()).with_columns(
+        genuine_fail=(pl.col("covered") <= (0.75 * pl.col("n_rep")).floor()) | (pl.col("bias_in_sd").abs() > 0.5))
+
+
+def run_summary2():
+    d = pl.concat([pl.read_parquet(f) for f in sorted(OUT.glob("stage1b_recovery_*.parquet"))], how="diagonal_relaxed")
+    cov = _coverage(d).sort("population", "variant", "stage", "param")
+    # Rev-8 decision (pre-stated rule)
+    m = cov.filter(pl.col("population") == "moltbook")
+    dec = {}
+    for v in ["standard", "rev8"]:
+        x = m.filter(pl.col("variant") == v)
+        dec[v] = {"root_genuine": int(x.filter(pl.col("param").is_in(ROOT_STREAM))["genuine_fail"].sum()),
+                  "total_genuine": int(x["genuine_fail"].sum())}
+    keep = dec["rev8"]["root_genuine"] < dec["standard"]["root_genuine"] and dec["rev8"]["total_genuine"] <= dec["standard"]["total_genuine"]
+    kept = "rev8" if keep else "standard"
+    (OUT / "stage1b_rev8_decision.json").write_text(json.dumps({"counts": dec, "keep_rev8": keep, "moltbook_variant": kept}, indent=1))
+    cov = cov.with_columns(primary=(pl.col("population") != "moltbook") | (pl.col("variant") == kept))
+    cov.write_csv(OUT / "stage1b_coverage.csv")
+    # clock shapes incl. combined clock (F1-S2b)
+    c = pl.concat([pl.read_parquet(f) for f in sorted(OUT.glob("stage1b_curves_*.parquet"))], how="diagonal_relaxed")
+    g = c.filter(pl.col("in_event_range")).group_by("population", "variant", "clock", "rep").agg(
+        frac_in_band=((pl.col("true") >= pl.col("lo")) & (pl.col("true") <= pl.col("hi"))).mean())
+    cs = g.group_by("population", "variant", "clock").agg(reps_band_ok=(pl.col("frac_in_band") >= 0.9).sum(), n=pl.len()) \
+        .sort("population", "variant", "clock")
+    cs.write_csv(OUT / "stage1b_clock_shapes.csv")
+    b1 = d.filter(pl.col("model") == "B1").join(
+        d.filter(pl.col("model") == "RE").select("population", "variant", "rep", "param", pl.col("truth").alias("t_true")),
+        on=["population", "variant", "rep", "param"], how="left").group_by("population", "variant", "param").agg(
+        truth=pl.col("t_true").first(), mean_est=pl.col("estimate").mean(),
+        covered=((pl.col("ci_lo") <= pl.col("t_true")) & (pl.col("ci_hi") >= pl.col("t_true"))).sum(), n=pl.len())
+    b1.write_csv(OUT / "stage1b_B1_kernel.csv")
+    meta = d.filter(pl.col("model") == "RE").group_by("population", "variant", "rep").agg(
+        pl.col("re_iterations").first(), pl.col("re_converged").first(), pl.col("start_b").first(),
+        pl.col("seconds").first()).group_by("population", "variant").agg(
+        fits=pl.len(), converged=pl.col("re_converged").sum(), max_iter=pl.col("re_iterations").max(),
+        start_b=pl.col("start_b").unique().sort().cast(pl.String).str.join(","), mean_seconds=pl.col("seconds").mean()) \
+        .sort("population", "variant")
+    meta.write_csv(OUT / "stage1b_run_meta.csv")
+    pl.Config.set_tbl_rows(400)
+    pl.Config.set_tbl_width_chars(220)
+    print(cov.group_by("population", "variant").agg(params=pl.len(), literal_pass=pl.col("pass_literal").sum(),
+                                                    genuine_fail=pl.col("genuine_fail").sum()).sort("population", "variant"))
+    print(cov.filter(pl.col("genuine_fail")).select("population", "variant", "param", pl.col("truth").round(3),
+          pl.col("mean_est").round(3), "covered", pl.col("bias_in_sd").round(2), pl.col("sd_ratio").round(2)))
+    print(dec, "keep rev8:", keep)
+    print(cs)
+    print(b1.sort("population", "param"))
+    print(meta)
+    figures2(cov.filter(pl.col("primary")), c.filter((pl.col("population") == "moltbook") & (pl.col("variant") == kept)))
+
+
+def figures2(cov: pl.DataFrame, cm: pl.DataFrame):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    INK, INK2, GRID, SURF = "#0b0b0b", "#52514e", "#e4e3df", "#fcfcfb"
+    pops = POPULATIONS + ["hn_joint"]
+    params = list(dict.fromkeys(cov.filter(~pl.col("param").str.starts_with("hour"))["param"].to_list()))
+    fig, ax = plt.subplots(figsize=(11, 0.28 * len(params) + 1.6), dpi=150)
+    fig.patch.set_facecolor(SURF)
+    ax.set_facecolor(SURF)
+    for i, pop in enumerate(pops):
+        x = cov.filter(pl.col("population") == pop)
+        for j, prm in enumerate(params + ["hours (min of 23)"]):
+            if prm.startswith("hours"):
+                h = x.filter(pl.col("param").str.starts_with("hour"))
+                v, n = (h["covered"].min(), h["n_rep"].max()) if h.height else (None, None)
+            else:
+                r = x.filter(pl.col("param") == prm)
+                v, n = (r["covered"][0], r["n_rep"][0]) if r.height else (None, None)
+            if v is None:
+                continue
+            col = "#1baf7a" if v >= 0.9 * n else ("#eda100" if v > 0.75 * n else "#e34948")
+            ax.scatter(i, j, s=60, color=col, zorder=3)
+            ax.text(i + 0.18, j, f"{v}", va="center", fontsize=7, color=INK2)
+    ax.set_yticks(range(len(params) + 1))
+    ax.set_yticklabels(params + ["hours (min of 23)"], fontsize=8, color=INK2)
+    ax.set_xticks(range(len(pops)))
+    ax.set_xticklabels(pops, fontsize=8, color=INK2)
+    ax.invert_yaxis()
+    ax.set_xlim(-0.5, len(pops) - 0.2)
+    ax.set_title("Stage 1 rerun: replicates (of 20) whose 95% interval covers the truth", color=INK, fontsize=10, loc="left")
+    ax.text(0.0, -0.06, "green >= 18 (pass)   amber 16-17   red <= 15", transform=ax.transAxes, fontsize=8, color=INK2)
+    for sp in ["top", "right"]:
+        ax.spines[sp].set_visible(False)
+    ax.grid(True, color=GRID, lw=0.5)
+    fig.tight_layout()
+    fig.savefig(FIG / "stage1b_coverage.png", facecolor=SURF)
+    fig, ax = plt.subplots(figsize=(6.5, 4.2), dpi=150)
+    fig.patch.set_facecolor(SURF)
+    ax.set_facecolor(SURF)
+    x = cm.filter(pl.col("clock") == "combined_k_plus_a")
+    for rep in x["rep"].unique().to_list():
+        r = x.filter(pl.col("rep") == rep).sort("age_s")
+        a, t = r["age_s"].to_numpy() / 60, r["true"].to_numpy()
+        ax.fill_between(a, r["lo"].to_numpy() - t, r["hi"].to_numpy() - t, color="#2a78d6", alpha=0.04, lw=0)
+        ax.plot(a, r["estimate"].to_numpy() - t, color="#2a78d6", lw=0.8, alpha=0.5)
+    ax.axhline(0, color=INK, lw=1.5, label="truth")
+    ax.plot([], [], color="#2a78d6", lw=1, label="estimate − truth, each replicate (band shaded)")
+    ax.axvspan(x["event_age_p5"].median() / 60, x["event_age_p95"].median() / 60, color=GRID, alpha=0.5, lw=0)
+    ax.set_xscale("log")
+    ax.set_title("Moltbook: combined clock k(u) + a(s̄ + u), error in log shape vs 1 h", color=INK, fontsize=10, loc="left")
+    ax.set_xlabel("comment age (minutes); grey = 5th-95th percentile of event ages", color=INK2, fontsize=9)
+    ax.set_ylabel("estimate − truth (log rate)", color=INK2, fontsize=9)
+    ax.grid(True, color=GRID, lw=0.6)
+    ax.tick_params(colors=INK2, labelsize=8)
+    for sp in ["top", "right"]:
+        ax.spines[sp].set_visible(False)
+    ax.legend(frameon=False, fontsize=8, labelcolor=INK2)
+    fig.tight_layout()
+    fig.savefig(FIG / "stage1b_moltbook_combined_clock.png", facecolor=SURF)
+
+
 if __name__ == "__main__":
     cmd = sys.argv[1]
     if cmd == "roots":
@@ -667,3 +791,5 @@ if __name__ == "__main__":
         run_hn_joint2()
     elif cmd == "bootcheck2":
         run_bootcheck2()
+    elif cmd == "summary2":
+        run_summary2()
