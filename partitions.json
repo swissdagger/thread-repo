@@ -614,6 +614,38 @@
       "F1_S2b": "combined clock k(u)+a(s_bar+u) relative to 1 h inside the band at >= 90% of event-range ages in >= 18/20",
       "outputs": "outputs/fit1/stage1b_*",
       "datasets": "identical to stage 1 (same truth, seeds)"
+    },
+    "stage1c": {
+      "purpose": "Rev-9 test (Gauss-Legendre exposure quadrature) and confirmation; same datasets, truth and seeds as stage 1",
+      "rev9": {
+        "nodes": 2,
+        "min_log_width": 0.1,
+        "zero_start": "composite 2-point GL in log age over [1 ms, b], sub-pieces of log width <= 2, plus [0, 1 ms] at one point"
+      },
+      "keep_runs": {
+        "moltbook": "rev8_rev9 vs rev8",
+        "buildapc": "rev9 vs standard",
+        "replicates": 20
+      },
+      "confirmation_runs": {
+        "populations": [
+          "philosophy",
+          "ask_hn",
+          "show_hn",
+          "link",
+          "hn_joint"
+        ],
+        "variant": "rev9",
+        "replicates": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ]
+      },
+      "scoring": "Rev-10 (docs/results_register.md); 5-replicate SDs from the 20-replicate midpoint run",
+      "outputs": "outputs/fit1/stage1c_*"
     }
   }
 }

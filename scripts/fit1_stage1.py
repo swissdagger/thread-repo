@@ -488,6 +488,31 @@ def figures(cov: pl.DataFrame):
 from forum_model import fit1_estimator2 as EST2  # noqa: E402
 
 
+def variant_flags(variant: str) -> tuple[bool, bool, str]:
+    """(Rev-8 bins, Rev-9 quadrature, output prefix). Rev-9 runs write stage1c_* files."""
+    quad = "rev9" in variant
+    return "rev8" in variant, quad, ("stage1c" if quad else "stage1b")
+
+
+def hour_profile_rows(names, coef, reps, truth, base):
+    """Daily hour profile: hour effects centred on their 24-hour mean (hour 0 = 0 before centring), with
+    bootstrap intervals; reported, not scored (the hours are scored as one block, Rev-10)."""
+    hk = [names.index(f"hour_{h}") for h in range(1, 24)]
+    H = np.c_[np.zeros(len(reps)), reps[:, hk]]
+    Hc = H - H.mean(axis=1, keepdims=True)
+    h0 = np.r_[0.0, coef[hk]]
+    h0c = h0 - h0.mean()
+    tv = np.r_[0.0, [truth.get(f"hour_{h}", np.nan) for h in range(1, 24)]]
+    tvc = tv - tv.mean()
+    rows = []
+    for h in range(24):
+        lo, hi = np.nanpercentile(Hc[:, h], [2.5, 97.5])
+        rows.append({**base, "stage": "hour_profile", "param": f"hourc_{h}", "truth": float(tvc[h]),
+                     "estimate": float(h0c[h]), "ci_lo": float(lo), "ci_hi": float(hi),
+                     "boot_sd": float(np.nanstd(Hc[:, h])), "covered": bool(lo <= tvc[h] <= hi)})
+    return rows
+
+
 def rows_from_fit2(pop, rep, R, truth, diag, secs, variant):
     rows = []
     conv = R["RE"]
@@ -505,6 +530,11 @@ def rows_from_fit2(pop, rep, R, truth, diag, secs, variant):
                          "max_thread_size": diag["max_thread_size"], "redraws": diag["redraws"],
                          "re_iterations": conv["n_iter"], "re_converged": conv["converged"], "start_b": conv["start_b"],
                          "seconds": secs})
+    if variant_flags(variant)[1]:  # Rev-9 runs also record the daily hour profile
+        base = {"population": pop, "variant": variant, "rep": rep, "model": "RE", "se_sandwich": None,
+                "max_thread_size": diag["max_thread_size"], "redraws": diag["redraws"], "re_iterations": conv["n_iter"],
+                "re_converged": conv["converged"], "start_b": conv["start_b"], "seconds": secs}
+        rows += hour_profile_rows(R["RE"]["names"], R["RE"]["coef"], R["RE"]["reps"], truth, base)
     return rows
 
 
@@ -545,10 +575,10 @@ def clock_curves2(R, truth, pop, rep, S, variant):
     return out
 
 
-def run_recover2(pop: str, variant: str = "standard"):
-    n_rep, B = int(S1["replicates"]), int(S1["B"])
-    rev8 = variant == "rev8"
-    fr, fc = OUT / f"stage1b_recovery_{pop}_{variant}.parquet", OUT / f"stage1b_curves_{pop}_{variant}.parquet"
+def run_recover2(pop: str, variant: str = "standard", n_rep: int | None = None):
+    n_rep, B = int(n_rep or S1["replicates"]), int(S1["B"])
+    rev8, quad, pre = variant_flags(variant)
+    fr, fc = OUT / f"{pre}_recovery_{pop}_{variant}.parquet", OUT / f"{pre}_curves_{pop}_{variant}.parquet"
     rows, curves, done = [], [], set()
     if fr.exists() and fc.exists():
         rows = pl.read_parquet(fr).to_dicts()
@@ -563,7 +593,7 @@ def run_recover2(pop: str, variant: str = "standard"):
         t0 = time.time()
         items, diag, truth, rng = dataset(pop, rep)
         S = extract(items)
-        R = EST2.fit_all(S, B, rng, rev8=rev8)
+        R = EST2.fit_all(S, B, rng, rev8=rev8, quad=quad)
         rows += rows_from_fit2(pop, rep, R, truth, diag, time.time() - t0, variant)
         curves += clock_curves2(R, truth, pop, rep, S, variant)
         cov = np.mean([r["covered"] for r in rows if r["rep"] == rep and r["model"] == "RE" and r["covered"] is not None])
@@ -573,8 +603,9 @@ def run_recover2(pop: str, variant: str = "standard"):
         pl.DataFrame(curves).write_parquet(fc)
 
 
-def run_hn_joint2():
-    n_rep, B = int(S1["replicates"]), int(S1["B"])
+def run_hn_joint2(variant: str = "standard", n_rep: int | None = None):
+    n_rep, B = int(n_rep or S1["replicates"]), int(S1["B"])
+    rev8, quad, pre = variant_flags(variant)
     truth = load_truth()
     tv = {"gamma": S1["truth_spec"]["hn_shared"]["gamma"], "minus_kappa": -S1["truth_spec"]["hn_shared"]["kappa"]}
     for pop in HN:
@@ -583,7 +614,7 @@ def run_hn_joint2():
     tv["log_r"], tv["b"] = truth["ask_hn"]["truth_vector"]["log_r"], truth["ask_hn"]["truth_vector"]["b"]
     for h in range(1, 24):
         tv[f"hour_{h}"] = truth["ask_hn"]["truth_vector"][f"hour_{h}"]
-    fj = OUT / "stage1b_recovery_hn_joint.parquet"
+    fj = OUT / ("stage1b_recovery_hn_joint.parquet" if variant == "standard" else f"{pre}_recovery_hn_joint_{variant}.parquet")
     rows = pl.read_parquet(fj).to_dicts() if fj.exists() else []
     done = {r["rep"] for r in rows}
     for rep in range(n_rep):
@@ -596,7 +627,7 @@ def run_hn_joint2():
             parts.append(items.filter(pl.col("is_root") | (pl.col("depth") == 1)).with_columns(
                 id=pl.when(pl.col("is_root")).then(pl.col("id")).otherwise(pl.lit(pop + ":") + pl.col("id"))))
         S = extract(pl.concat(parts))
-        D = EST2.build(S, post_types=HN, comment_stream=False)
+        D = EST2.build(S, rev8=rev8, post_types=HN, comment_stream=False, quad=quad)
         M = EST2.REModel2(D)
         th, conv = M.fit_multistart()
         I, sc = M.info(th), M.scores(th)
@@ -606,13 +637,17 @@ def run_hn_joint2():
         for j, nm in enumerate(M.names):
             lo, hi = np.nanpercentile(reps[:, j], [2.5, 97.5])
             t = tv.get(nm)
-            rows.append({"population": "hn_joint", "variant": "standard", "rep": rep, "model": "RE", "stage": "joint_root",
+            rows.append({"population": "hn_joint", "variant": variant, "rep": rep, "model": "RE", "stage": "joint_root",
                          "param": nm, "truth": t, "estimate": float(th[j]), "ci_lo": float(lo), "ci_hi": float(hi),
                          "boot_sd": float(np.nanstd(reps[:, j])), "covered": bool(lo <= t <= hi) if t is not None else None,
                          "re_iterations": conv["iterations"], "re_converged": conv["converged"], "start_b": conv["start_b"],
                          "seconds": time.time() - t0})
+        if quad:
+            rows += hour_profile_rows(M.names, th, reps, tv, {
+                "population": "hn_joint", "variant": variant, "rep": rep, "model": "RE", "re_iterations": conv["iterations"],
+                "re_converged": conv["converged"], "start_b": conv["start_b"], "seconds": time.time() - t0})
         k = M.names.index("minus_kappa")
-        print(f"  [hn_joint2] rep {rep}: kappa {-th[k]:.4f}, gamma {th[M.names.index('gamma')]:.4f}, "
+        print(f"  [hn_joint2] {variant} rep {rep}: kappa {-th[k]:.4f}, gamma {th[M.names.index('gamma')]:.4f}, "
               f"iters {conv['iterations']}, converged {conv['converged']}, {time.time() - t0:.0f}s", flush=True)
         pl.DataFrame(rows, infer_schema_length=None).write_parquet(fj)
 
@@ -768,6 +803,150 @@ def figures2(cov: pl.DataFrame, cm: pl.DataFrame):
     fig.tight_layout()
     fig.savefig(FIG / "stage1b_moltbook_combined_clock.png", facecolor=SURF)
 
+# ---------------------------------------------------------------------------------------------------------------
+# Rev-10 scoring (adopted for Stage 2 onward; also the scoring rule of the Rev-9 test and its confirmation)
+REV9_TARGET = ["k1_log_u", "k2_log_u_sq", "a1_log_tau", "a2_log_tau_sq", "aR1", "aR2", "gamma", "alpha_c", "alpha_R",
+               "b", "log_r"]
+REV9_CONFIRM = ["philosophy", "ask_hn", "show_hn", "link"]
+
+
+def _rep_sds(g: pl.DataFrame) -> tuple[dict, float, dict]:
+    """Across-replicate SDs: per non-hour parameter; of the hours' common shift; per hour, de-meaned."""
+    sd_p = dict(g.filter(~pl.col("param").str.starts_with("hour_")).group_by("param").agg(pl.col("estimate").std()).iter_rows())
+    h = g.filter(pl.col("param").str.starts_with("hour_")).with_columns(e=pl.col("estimate") - pl.col("truth"))
+    if not h.height:
+        return sd_p, 0.0, {}
+    c = h.group_by("rep").agg(c=pl.col("e").mean())
+    h = h.join(c, on="rep").with_columns(dm=pl.col("e") - pl.col("c"))
+    return sd_p, float(c["c"].std()), dict(h.group_by("param").agg(pl.col("dm").std()).iter_rows())
+
+
+def score_rev10(d: pl.DataFrame, reps: list[int] | None = None, sd_ref: pl.DataFrame | None = None) -> pl.DataFrame:
+    """Genuine failures under Rev-10, per (population, variant). Non-hour parameter: covered <= floor(0.75 n), or
+    |mean bias| > 0.5 x mean bootstrap SD AND > 3 standard errors of the replicate mean (SD across replicates /
+    sqrt n). The 23 hour effects form one block, which fails (one failure) if any of: (i) their common shift
+    c_r = mean_h(est - truth) has |mean c| > 0.5 s_c and > 3 s_c / sqrt n (s_c = SD of c_r across replicates, the
+    stand-in for its bootstrap SD, which earlier runs did not store); (ii) an hour's de-meaned deviation
+    (est - truth - c_r) has |mean| > 0.5 x its mean bootstrap SD and > 3 standard errors; (iii) >= 3 hours are
+    covered in <= floor(0.75 n) replicates.
+    sd_ref (5-replicate confirmation): the across-replicate SDs that enter the standard errors are taken from these
+    rows (the population's 20-replicate midpoint run) instead of from the few replicates being scored."""
+    keep_rows = (pl.col("model") == "RE") & pl.col("truth").is_not_null() & ~pl.col("param").str.starts_with("hourc_")
+    d = d.filter(keep_rows)
+    if sd_ref is not None:
+        sd_ref = sd_ref.filter(keep_rows)
+    if reps is not None:
+        d = d.filter(pl.col("rep").is_in(reps))
+    out = []
+    for (pop, var), g in d.group_by("population", "variant", maintain_order=True):
+        n = g["rep"].n_unique()
+        lim = int(np.floor(0.75 * n))
+        ref = _rep_sds(sd_ref.filter(pl.col("population") == pop)) if sd_ref is not None else _rep_sds(g)
+        nh = g.filter(~pl.col("param").str.starts_with("hour_")).group_by("param").agg(
+            n=pl.len(), covered=pl.col("covered").sum(), truth=pl.col("truth").first(), mean_est=pl.col("estimate").mean(),
+            boot_sd=pl.col("boot_sd").mean(), sd_est=pl.col("estimate").std())
+        for r in nh.iter_rows(named=True):
+            bias = r["mean_est"] - r["truth"]
+            se = (ref[0].get(r["param"]) or 0.0) / np.sqrt(r["n"])
+            fc = r["covered"] <= lim
+            fb = abs(bias) > 0.5 * r["boot_sd"] and abs(bias) > 3 * se
+            out.append({"population": pop, "variant": var, "param": r["param"], "n_rep": r["n"], "covered": r["covered"],
+                        "bias": bias, "bias_in_bootsd": bias / r["boot_sd"] if r["boot_sd"] else None,
+                        "bias_in_se": bias / se if se > 0 else None, "fail_coverage": fc, "fail_bias": fb,
+                        "genuine_fail": bool(fc or fb), "reason": ("coverage " if fc else "") + ("bias" if fb else "")})
+        h = g.filter(pl.col("param").str.starts_with("hour_"))
+        if h.height:
+            h = h.with_columns(e=pl.col("estimate") - pl.col("truth"))
+            c = h.group_by("rep").agg(c=pl.col("e").mean())
+            h = h.join(c, on="rep").with_columns(dm=pl.col("e") - pl.col("c"))
+            cv = c["c"].to_numpy()
+            cbar, sc = float(cv.mean()), ref[1]
+            f_shift = abs(cbar) > 0.5 * sc and abs(cbar) > 3 * sc / np.sqrt(n)
+            ph = h.group_by("param").agg(dm=pl.col("dm").mean(), sd=pl.col("dm").std(), boot_sd=pl.col("boot_sd").mean(),
+                                         covered=pl.col("covered").sum())
+            f_prof = [r["param"] for r in ph.iter_rows(named=True)
+                      if abs(r["dm"]) > 0.5 * r["boot_sd"] and abs(r["dm"]) > 3 * (ref[2].get(r["param"]) or 0.0) / np.sqrt(n)]
+            n_low = int((ph["covered"] <= lim).sum())
+            fail = bool(f_shift or f_prof or n_low >= 3)
+            out.append({"population": pop, "variant": var, "param": "hours (block)", "n_rep": n,
+                        "covered": int(ph["covered"].min()), "bias": cbar, "bias_in_bootsd": None,
+                        "bias_in_se": cbar / (sc / np.sqrt(n)) if sc > 0 else None, "fail_coverage": n_low >= 3,
+                        "fail_bias": bool(f_shift or f_prof), "genuine_fail": fail,
+                        "reason": (f"shift {cbar:+.4f} " if f_shift else "") + (f"profile {','.join(sorted(f_prof))} " if f_prof else "")
+                        + (f"{n_low} hours low coverage" if n_low >= 3 else "")})
+    return pl.DataFrame(out)
+
+
+def _load(prefix: str) -> pl.DataFrame:
+    fs = sorted(OUT.glob(f"{prefix}_recovery_*.parquet"))
+    if not fs:
+        return pl.DataFrame(schema={"population": pl.String, "variant": pl.String, "rep": pl.Int64, "model": pl.String,
+                                    "param": pl.String, "truth": pl.Float64, "estimate": pl.Float64, "covered": pl.Boolean})
+    return pl.concat([pl.read_parquet(f) for f in fs], how="diagonal_relaxed")
+
+
+def run_summary3():
+    """Rev-9 keep rule and, if kept, the confirmation rule (both pre-stated in docs/results_register.md)."""
+    old, new = _load("stage1b"), _load("stage1c")
+    allr = pl.concat([old, new], how="diagonal_relaxed")
+    flags20 = score_rev10(allr)
+    flags20.write_csv(OUT / "stage1c_flags_rev10.csv")
+    base = {"moltbook": "rev8", "buildapc": "standard"}
+    cand = {"moltbook": "rev8_rev9", "buildapc": "rev9"}
+
+    def nfail(pop, var, target=False):
+        x = flags20.filter((pl.col("population") == pop) & (pl.col("variant") == var) & pl.col("genuine_fail"))
+        return int(x.filter(pl.col("param").is_in(REV9_TARGET)).height if target else x.height)
+    have = all(flags20.filter((pl.col("population") == p_) & (pl.col("variant") == v)).height for p_, v in cand.items())
+    dec = {"counts_rev10": {p_: {"midpoint": {"targeted": nfail(p_, base[p_], True), "total": nfail(p_, base[p_])},
+                                 "rev9": {"targeted": nfail(p_, cand[p_], True), "total": nfail(p_, cand[p_])}}
+                            for p_ in base} if have else None}
+    if have:
+        t_mid = sum(v["midpoint"]["targeted"] for v in dec["counts_rev10"].values())
+        t_new = sum(v["rev9"]["targeted"] for v in dec["counts_rev10"].values())
+        no_worse = all(v["rev9"]["total"] <= v["midpoint"]["total"] for v in dec["counts_rev10"].values())
+        dec.update(targeted_midpoint=t_mid, targeted_rev9=t_new, keep_rev9=bool(t_new < t_mid and no_worse))
+        # descriptive: the old F1-S3 rule on the same runs
+        cov = _coverage(allr.filter(~pl.col("param").str.starts_with("hourc_")))
+        dec["counts_old_f1s3"] = {f"{p_}:{v}": int(cov.filter((pl.col("population") == p_) & (pl.col("variant") == v))["genuine_fail"].sum())
+                                  for p_ in base for v in (base[p_], cand[p_])}
+    # clock shapes (F1-S2b for Moltbook) on the Rev-9 runs
+    cf = sorted(OUT.glob("stage1c_curves_*.parquet"))
+    if cf:
+        c = pl.concat([pl.read_parquet(f) for f in cf], how="diagonal_relaxed")
+        g = c.filter(pl.col("in_event_range")).group_by("population", "variant", "clock", "rep").agg(
+            frac=((pl.col("true") >= pl.col("lo")) & (pl.col("true") <= pl.col("hi"))).mean())
+        cs = g.group_by("population", "variant", "clock").agg(reps_band_ok=(pl.col("frac") >= 0.9).sum(), n=pl.len()).sort(
+            "population", "variant", "clock")
+        cs.write_csv(OUT / "stage1c_clock_shapes.csv")
+        print(cs)
+    # confirmation (5 replicates each, Rev-9 vs midpoint on the same replicates 0-4)
+    conf_pops = REV9_CONFIRM + ["hn_joint"]
+    have_c = all(new.filter((pl.col("population") == p_) & (pl.col("variant") == "rev9")).height for p_ in conf_pops)
+    if have_c:
+        r5 = list(range(5))
+        f5 = score_rev10(allr.filter(pl.col("population").is_in(conf_pops) & pl.col("variant").is_in(["standard", "rev9"])), r5,
+                         sd_ref=old.filter(pl.col("population").is_in(conf_pops) & (pl.col("variant") == "standard")))
+        f5.write_csv(OUT / "stage1c_confirmation_flags.csv")
+        newf = []
+        for p_ in conf_pops:
+            a = set(f5.filter((pl.col("population") == p_) & (pl.col("variant") == "standard") & pl.col("genuine_fail"))["param"].to_list())
+            b = set(f5.filter((pl.col("population") == p_) & (pl.col("variant") == "rev9") & pl.col("genuine_fail"))["param"].to_list())
+            newf += [f"{p_}:{x}" for x in sorted(b - a)]
+        cvg = allr.filter((pl.col("variant") == "rev9") & pl.col("rep").is_in(r5) & pl.col("population").is_in(conf_pops)
+                          & pl.col("param").is_in(["gamma", "minus_kappa"]) & (pl.col("model") == "RE")).group_by(
+            "population", "param").agg(covered=pl.col("covered").sum(), n=pl.len()).sort("population", "param")
+        kg_ok = bool((cvg["covered"] >= 4).all()) and cvg.filter(pl.col("param") == "minus_kappa").height == 1
+        dec["confirmation"] = {"new_genuine_failures": newf, "gamma_kappa_coverage": cvg.to_dicts(),
+                               "gamma_kappa_ok": kg_ok, "passes": bool(not newf and kg_ok)}
+    (OUT / "stage1c_rev9_decision.json").write_text(json.dumps(dec, indent=1, default=str))
+    pl.Config.set_tbl_rows(300)
+    pl.Config.set_tbl_width_chars(220)
+    print(flags20.filter(pl.col("genuine_fail")).select("population", "variant", "param", "covered", "n_rep",
+                                                        pl.col("bias_in_bootsd").round(2), pl.col("bias_in_se").round(2), "reason"))
+    print(json.dumps(dec, indent=1, default=str))
+
+
 
 if __name__ == "__main__":
     cmd = sys.argv[1]
@@ -786,9 +965,12 @@ if __name__ == "__main__":
     elif cmd == "summary":
         run_summary()
     elif cmd == "recover2":
-        run_recover2(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else "standard")
+        run_recover2(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else "standard",
+                     int(sys.argv[4]) if len(sys.argv) > 4 else None)
     elif cmd == "hn_joint2":
-        run_hn_joint2()
+        run_hn_joint2(sys.argv[2] if len(sys.argv) > 2 else "standard", int(sys.argv[3]) if len(sys.argv) > 3 else None)
+    elif cmd == "summary3":
+        run_summary3()
     elif cmd == "bootcheck2":
         run_bootcheck2()
     elif cmd == "summary2":

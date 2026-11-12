@@ -6,6 +6,10 @@
     Non-hour covariates stay at the cell (clocks at the geometric-midpoint age, early-position indicator at the
     arithmetic midpoint); the hour effect is exact. Hours are stored as an index, not as dense columns.
   * Rev-8 (optional): bins below 10 s ([0, 1 s] and four log-spaced bins from 1 to 10 s).
+  * Rev-9 (optional, quad=True): exposure integral by 2-point Gauss-Legendre quadrature in log age on every
+    exposure piece wider than 0.1 in log age; narrower pieces keep the one-point rule. A piece starting at age 0
+    is integrated by composite 2-point Gauss-Legendre in log age over [1 ms, b] in sub-pieces of log width <= 2,
+    plus [0, 1 ms] at one point. Each node is its own exposure row (same thread, hour and non-clock covariates).
   * Rev-5: multi-start over b. b is profiled on {0.5, 1, 2, 3.5, 5} (all other parameters re-maximised, up to
     15 Newton iterations each), Newton starts from the best point, cap 100 iterations; convergence is reported.
 Events enter as their own cells with covariates at the exact event time (Rev-2).
@@ -24,6 +28,50 @@ BASE_EDGES = np.r_[0.0, np.logspace(1, np.log10(H_DEFAULT), 40)]
 REV8_EDGES = np.r_[0.0, np.logspace(0, 1, 5)[:-1], BASE_EDGES[1:]]
 EV_LOGEXP = np.log(1e-9)
 B_GRID = [0.5, 1.0, 2.0, 3.5, 5.0]
+
+
+QUAD_N, QUAD_DELTA, QUAD_W0, QUAD_FLOOR = 2, 0.1, 2.0, 1e-3
+
+
+def quad_nodes(a: np.ndarray, b: np.ndarray, quad: bool):
+    """Exposure nodes for pieces [a, b] (seconds): (piece index, node age, log weight). Without quad: one node per
+    piece at the geometric midpoint (arithmetic for a = 0) with weight b - a, as before Rev-9."""
+    a = np.asarray(a, float)
+    b = np.asarray(b, float)
+    n = len(a)
+    if not quad:
+        return np.arange(n), _gm(a, b), np.log(b - a)
+    xg, wg = np.polynomial.legendre.leggauss(QUAD_N)
+    lw = np.where(a > 0, np.log(b / np.maximum(a, 1e-300)), np.inf)
+    narrow = (a > 0) & (lw <= QUAD_DELTA)
+    wide = (a > 0) & ~narrow
+    zero = a <= 0
+    idx, age, logw = [np.nonzero(narrow)[0]], [_gm(a[narrow], b[narrow])], [np.log(b[narrow] - a[narrow])]
+
+    def gl(ii, lo, hi):  # GL nodes in log age on [lo, hi] for pieces ii
+        la, lb = np.log(lo), np.log(hi)
+        half, mid = (lb - la) / 2, (lb + la) / 2
+        x = mid[:, None] + half[:, None] * xg[None, :]
+        idx.append(np.repeat(ii, QUAD_N))
+        age.append(np.exp(x).ravel())
+        logw.append((np.log(half)[:, None] + np.log(wg)[None, :] + x).ravel())
+    wi = np.nonzero(wide)[0]
+    gl(wi, a[wi], b[wi])
+    zi = np.nonzero(zero)[0]
+    tiny = zi[b[zi] <= QUAD_FLOOR]
+    idx.append(tiny); age.append(b[tiny] / 2); logw.append(np.log(b[tiny]))
+    zi = zi[b[zi] > QUAD_FLOOR]
+    if len(zi):
+        idx.append(zi); age.append(np.full(len(zi), QUAD_FLOOR / 2)); logw.append(np.full(len(zi), np.log(QUAD_FLOOR)))
+        k = np.ceil((np.log(b[zi]) - np.log(QUAD_FLOOR)) / QUAD_W0).astype(int)
+        for kk in np.unique(k):
+            ii = zi[k == kk]
+            e = np.exp(np.linspace(np.log(QUAD_FLOOR), np.log(b[ii]), kk + 1, axis=1))  # (len(ii), kk+1)
+            for j in range(kk):
+                gl(ii, e[:, j], e[:, j + 1])
+    idx = np.concatenate(idx)
+    o = np.argsort(idx, kind="stable")
+    return idx[o], np.concatenate(age)[o], np.concatenate(logw)[o]
 
 
 def edges_for(rev8: bool) -> np.ndarray:
@@ -73,7 +121,7 @@ def _cX(u_age, s, depth, op, n, pos, tau_pos):
                            ).astype(np.float64)
 
 
-def build_comment(S: dict, tmap: dict, edges: np.ndarray) -> dict:
+def build_comment(S: dict, tmap: dict, edges: np.ndarray, quad: bool = False) -> dict:
     units = S["units"]
     uid = {k: i for i, k in enumerate(units["id"].to_list())}
     ec = S["events_c"]
@@ -94,20 +142,23 @@ def build_comment(S: dict, tmap: dict, edges: np.ndarray) -> dict:
     i, a, b, n = i[sc], pa, pb, n[sc]
     okp = b > a
     i, a, b, n, sh = i[okp], a[okp], b[okp], n[okp], sh[okp]
-    Xe = _cX(_gm(a, b), s[i], depth[i], op[i], n, pos[i], s[i] + (a + b) / 2)
+    qi, qage, qlogw = quad_nodes(a, b, quad)  # Rev-9 (identity without quad)
+    tpos = s[i] + (a + b) / 2
+    i, n, sh, tpos = i[qi], n[qi], sh[qi], tpos[qi]
+    Xe = _cX(qage, s[i], depth[i], op[i], n, pos[i], tpos)
     order = _event_order(ev_unit, ev_u)
     k = np.nonzero(is_c & (ev_u <= U[ev_unit]))[0]
     ku = ev_unit[k]
     Xv = _cX(ev_u[k], s[ku], depth[ku], op[ku], order[k].astype(float), pos[ku], s[ku] + ev_u[k])
     ne = len(i)
     return {"X": np.vstack([Xe, Xv]).astype(np.float32), "thr": np.r_[thr_u[i], thr_u[ku]],
-            "y": np.r_[np.zeros(ne), np.ones(len(k))], "logw": np.r_[np.log(b - a), np.full(len(k), EV_LOGEXP)],
+            "y": np.r_[np.zeros(ne), np.ones(len(k))], "logw": np.r_[qlogw, np.full(len(k), EV_LOGEXP)],
             "sub_cell": np.arange(ne + len(k)),
             "sub_hour": np.r_[sh, _hour(T0[ku] + s[ku] + ev_u[k])],
-            "sub_logexp": np.r_[np.log(b - a), np.full(len(k), EV_LOGEXP)].astype(np.float32)}
+            "sub_logexp": np.r_[qlogw, np.full(len(k), EV_LOGEXP)].astype(np.float32)}
 
 
-def build_root(S: dict, tmap: dict, edges: np.ndarray, post_types: list[str]) -> dict:
+def build_root(S: dict, tmap: dict, edges: np.ndarray, post_types: list[str], quad: bool = False) -> dict:
     roots = S["roots"]
     er = S["events_r"]
     rt_unit = np.array([tmap[t] for t in er["thread_id"].to_list()], dtype=np.int64)
@@ -124,11 +175,13 @@ def build_root(S: dict, tmap: dict, edges: np.ndarray, post_types: list[str]) ->
     j, a, b, n = j[sc], pa, pb, n[sc]
     okp = b > a
     j, a, b, n, sh_e = j[okp], a[okp], b[okp], n[okp], sh_e[okp]
+    qi, qage, qlogw = quad_nodes(a, b, quad)  # Rev-9 (identity without quad)
+    j, n, sh_e = j[qi], n[qi], sh_e[qi]
     keep = rt_t <= UR[rt_unit]
     rt_unit, rt_t = rt_unit[keep], rt_t[keep]
     nev = _event_order(rt_unit, rt_t).astype(float)
     jj = np.r_[j, rt_unit]
-    age = np.r_[_gm(a, b), rt_t]
+    age = np.r_[qage, rt_t]
     nn = np.r_[n, nev]
     ptype = ptype_all[jj]
     multi = len(post_types) > 1
@@ -144,25 +197,26 @@ def build_root(S: dict, tmap: dict, edges: np.ndarray, post_types: list[str]) ->
         names.append("minus_kappa")
     ne = len(j)
     out = {"X": np.column_stack(cols).astype(np.float32), "thr": jj, "y": np.r_[np.zeros(ne), np.ones(len(rt_unit))],
-           "logw": np.r_[np.log(b - a), np.full(len(rt_unit), EV_LOGEXP)],
+           "logw": np.r_[qlogw, np.full(len(rt_unit), EV_LOGEXP)],
            "sub_cell": np.arange(ne + len(rt_unit)),
            "sub_hour": np.r_[sh_e, _hour(T0[rt_unit] + rt_t)],
-           "sub_logexp": np.r_[np.log(b - a), np.full(len(rt_unit), EV_LOGEXP)].astype(np.float32), "names": names}
+           "sub_logexp": np.r_[qlogw, np.full(len(rt_unit), EV_LOGEXP)].astype(np.float32), "names": names}
     if multi:
         out["R_type"] = np.column_stack([(ptype == ty) for ty in post_types]).astype(np.float32)
         out["R_type_names"] = [f"alpha_R_{ty}" for ty in post_types]
     return out
 
 
-def build(S: dict, rev8: bool = False, post_types: list[str] | None = None, comment_stream: bool = True) -> dict:
+def build(S: dict, rev8: bool = False, post_types: list[str] | None = None, comment_stream: bool = True,
+          quad: bool = False) -> dict:
     roots = S["roots"]
     tids = roots["thread_id"].to_list()
     tmap = {t: i for i, t in enumerate(tids)}
     types = post_types or sorted(set(roots["post_type"].to_list()))
     edges = edges_for(rev8)
-    D = {"nT": len(tids), "tids": tids, "R": build_root(S, tmap, edges, types)}
+    D = {"nT": len(tids), "tids": tids, "R": build_root(S, tmap, edges, types, quad)}
     if comment_stream:
-        D["C"] = build_comment(S, tmap, edges)
+        D["C"] = build_comment(S, tmap, edges, quad)
     return D
 
 
@@ -196,9 +250,7 @@ class REModel2:
         self.sub_hour = np.r_[C["sub_hour"], R["sub_hour"]].astype(np.int64) if C is not None else R["sub_hour"].astype(np.int64)
         self.sub_logexp = np.r_[C["sub_logexp"], R["sub_logexp"]] if C is not None else R["sub_logexp"]
         assert np.array_equal(self.sub_cell, np.arange(len(self.y))), "Rev-7 design: one hour per cell"
-        self.sub_thr = self.thr[self.sub_cell]
-        self.sub_y = self.y[self.sub_cell]
-        self.sub_is_c = self.is_c[self.sub_cell]
+        self.sub_thr, self.sub_y, self.sub_is_c = self.thr, self.y, self.is_c  # identity sub_cell: alias, no copy
         self.nc = nc
         self.Nc = np.bincount(self.thr[self.is_c], weights=self.y[self.is_c], minlength=self.nT)
         self.NR = np.bincount(self.thr[~self.is_c], weights=self.y[~self.is_c], minlength=self.nT)
@@ -394,9 +446,14 @@ class REModel2:
         return -self.grad_hess(th)[1]
 
 
-def fit_all(S: dict, B: int, rng: np.random.Generator, rev8: bool = False, with_b1: bool = True) -> dict:
-    D = build(S, rev8=rev8)
+def fit_all(S: dict, B: int, rng: np.random.Generator, rev8: bool = False, with_b1: bool = True,
+            quad: bool = False) -> dict:
+    D = build(S, rev8=rev8, quad=quad)
     M = REModel2(D)
+    if with_b1:  # keep only what B1 needs; the full design now lives in M
+        D["C"]["X2"] = D["C"]["X"][:, :2].copy()
+    D["C"].pop("X", None)
+    D["R"].pop("X", None)
     th, conv = M.fit_multistart()
     I = M.info(th)
     sc = M.scores(th)
@@ -418,7 +475,7 @@ def fit_all(S: dict, B: int, rng: np.random.Generator, rev8: bool = False, with_
                          "coef": thc, "reps": thc[None, :] + ((W - 1.0) @ sc3) @ np.linalg.inv(I3).T}
     if with_b1:
         C = D["C"]
-        prep = FEPoissonBoot(C["thr"], C["y"], C["X"][:, :2].astype(np.float64), C["logw"], C["thr"])
+        prep = FEPoissonBoot(C["thr"], C["y"], C["X2"].astype(np.float64), C["logw"], C["thr"])
         coef, se1 = prep.fit(se=True)
         A1 = {"prep": prep, "coef": coef, "se": se1}
         out["B1"] = {"names": C_NAMES[:2], "coef": coef, "se_sandwich": se1, "reps": onestep_reps(A1, D["nT"], W)}
