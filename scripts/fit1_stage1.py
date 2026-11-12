@@ -808,6 +808,7 @@ def figures2(cov: pl.DataFrame, cm: pl.DataFrame):
 REV9_TARGET = ["k1_log_u", "k2_log_u_sq", "a1_log_tau", "a2_log_tau_sq", "aR1", "aR2", "gamma", "alpha_c", "alpha_R",
                "b", "log_r"]
 REV9_CONFIRM = ["philosophy", "ask_hn", "show_hn", "link"]
+REV9_TARGET_MOLTBOOK = ["aR1", "aR2", "gamma"]  # amended keep rule (Moltbook alone)
 
 
 def _rep_sds(g: pl.DataFrame) -> tuple[dict, float, dict]:
@@ -891,12 +892,13 @@ def run_summary3():
     allr = pl.concat([old, new], how="diagonal_relaxed")
     flags20 = score_rev10(allr)
     flags20.write_csv(OUT / "stage1c_flags_rev10.csv")
-    base = {"moltbook": "rev8", "buildapc": "standard"}
-    cand = {"moltbook": "rev8_rev9", "buildapc": "rev9"}
+    # Amended keep rule (register, 2026-11-12, before any Rev-9 result was read): Moltbook alone, targets aR1, aR2, gamma.
+    base = {"moltbook": "rev8"}
+    cand = {"moltbook": "rev8_rev9"}
 
     def nfail(pop, var, target=False):
         x = flags20.filter((pl.col("population") == pop) & (pl.col("variant") == var) & pl.col("genuine_fail"))
-        return int(x.filter(pl.col("param").is_in(REV9_TARGET)).height if target else x.height)
+        return int(x.filter(pl.col("param").is_in(REV9_TARGET_MOLTBOOK)).height if target else x.height)
     have = all(flags20.filter((pl.col("population") == p_) & (pl.col("variant") == v)).height for p_, v in cand.items())
     dec = {"counts_rev10": {p_: {"midpoint": {"targeted": nfail(p_, base[p_], True), "total": nfail(p_, base[p_])},
                                  "rev9": {"targeted": nfail(p_, cand[p_], True), "total": nfail(p_, cand[p_])}}

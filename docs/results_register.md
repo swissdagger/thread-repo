@@ -160,3 +160,21 @@ together with probability ≈ 0. Its failures record that fact, not an estimator
 
 Outputs of the Rev-9 runs: `outputs/fit1/stage1c_*` (decision in `stage1c_rev9_decision.json`); summary:
 `python3 scripts/fit1_stage1.py summary3`.
+
+### Amendment to the Rev-9 test (2026-11-12, committed before any Rev-9 result was read)
+
+User decision, prioritising Stage 2 on the human populations:
+- **The r/buildapc Rev-9 run was stopped** at 15:26 UTC, with no replicate complete and no output written.
+  The Moltbook Rev-9 run (`rev8_rev9`) continues.
+- **The Rev-9 keep rule is now evaluated on Moltbook alone.** Keep Rev-9 if, on the same 20 Moltbook datasets
+  scored under Rev-10, (i) the genuine failures among **aR1, aR2 and γ** are fewer than with the midpoint rule
+  (baseline 3: all three fail); **and** (ii) Moltbook's total genuine failures (all parameters, hours as one
+  block) are not more than with the midpoint rule (baseline 3). The old F1-S3 counts, F1-S2b and clock shapes
+  are reported but decide nothing. Code: `run_summary3` (`REV9_TARGET_MOLTBOOK`).
+- **Reason:** the r/buildapc biases (≤ 0.01 in absolute terms: k1, k2, aR1, aR2) do not affect the Stage 2
+  comparisons, and the memory slot is needed for Stage 2.
+- **Confirmation runs are not started.** If Rev-9 is kept, Stage 2 is rerun for all populations with Rev-9
+  and both versions are reported (user decision). Whether the 5-replicate confirmation rule above still runs
+  is left open.
+- **Stage 2 for the human populations proceeds now** with the current estimator: Rev-1, 5, 7 and 8 (Rev-8
+  bins on Moltbook only), without Rev-9. Moltbook's Stage 2 waits for the Rev-9 decision.

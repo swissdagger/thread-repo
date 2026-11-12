@@ -624,8 +624,8 @@
       },
       "keep_runs": {
         "moltbook": "rev8_rev9 vs rev8",
-        "buildapc": "rev9 vs standard",
-        "replicates": 20
+        "replicates": 20,
+        "amendment": "2026-11-12: keep rule on Moltbook alone (targets aR1, aR2, gamma); r/buildapc Rev-9 run stopped before any replicate completed; confirmation runs not started"
       },
       "confirmation_runs": {
         "populations": [
